@@ -1,0 +1,115 @@
+---
+title: "Bias Variance Trade Off"
+output: bookdown::html_document2
+---
+
+
+Notes: http://scott.fortmann-roe.com/docs/BiasVariance.html#fn:2
+
+```{r}
+library(dplyr)
+library(ISLR)
+library(ggplot2)
+
+library(purrr)
+library(splines)
+
+
+```
+
+
+
+```{r}
+set.seed(346)
+# x <- sample( 1:100, 200, replace = TRUE) - 50
+# 
+# y <- c(1200,-140, -270,0,.1) * t(sapply(0:4, function(i){x^i}))
+# y <- colSums(y)
+# sd_irr_err <- sd(y) * .5
+# y <- y + rnorm(length(x), 0, sd_irr_err)
+# 
+# 
+# d <- data.frame(x = x, y = y)
+d <- Wage %>% 
+  select(x = age, y = wage)
+
+
+train_sel <- sample(1:nrow(d), 0.7 * nrow(d))
+train_d <- d[train_sel, ]
+test_d <- d[-train_sel,]
+
+
+grid_d <- data.frame(degree = 1:25)
+
+
+train_eval_lm <- function(degree, train_data, test_data){
+  train_data <- as.data.frame(train_data)
+  test_data <- as.data.frame(test_data)
+  
+    fit_mod <- lm(y ~ bs(x,  degree = degree, intercept = T), data = train_data)
+  
+  
+  
+  train_mse <- mean(residuals(fit_mod)^2)
+  
+  
+  test_data <- test_data %>% 
+    mutate(y_pred = suppressWarnings(predict(fit_mod, .))) %>%
+    mutate(test_resid = y_pred - y)
+  
+  test_mse <- mean(test_data$test_resid^2)
+
+  tibble(train_mse = train_mse,
+       test_mse = test_mse,
+       fit_mod = list(fit_mod))
+  }
+
+mod_d <- grid_d %>% 
+  mutate(out = purrr::map(degree, train_eval_lm, 
+                             train_data = train_d,
+                             test_data = test_d))
+
+mod_d <- mod_d %>% 
+  tidyr::unnest()
+
+mod_d %>% 
+  tidyr::gather("error_type", "val", train_mse, test_mse) %>% 
+  ggplot(aes(x = degree, y= val, color = error_type)) + geom_point() + 
+  coord_cartesian(ylim  = c(1400,1800))
+
+# 
+# mod <- lm(y ~ bs(x, degree = 100, intercept = T), data =d )
+# 
+# d %>% 
+#   mutate(y_pred = fitted.values(mod)) %>% 
+#   ggplot(aes(x = x, y = y)) + geom_point() + geom_line(aes(y = y_pred), color = "red")
+# 
+
+```
+
+
+```{r}
+train_d_boot <- modelr::bootstrap(train_d, 20)
+grid_d_boot <- tidyr::crossing(grid_d, train_d_boot) 
+
+
+
+mod_d_boot <- grid_d_boot %>% 
+  mutate(out = purrr::map2(degree, strap, 
+                              ~train_eval_lm(.x, .y, test_d))) %>% 
+  select(-strap) %>% 
+  tidyr::unnest()
+
+
+mod_d_boot %>% 
+  select(-fit_mod) %>% 
+  tidyr::gather("error_type", "val", train_mse, test_mse) %>% 
+  group_by(degree, error_type) %>% 
+  summarise(val = median(val)) %>% 
+  ggplot(aes(x = degree, y= val, color = error_type)) + 
+  geom_point() +
+  coord_cartesian(ylim  = c(1400,1800))
+
+
+```
+

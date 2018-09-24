@@ -1,0 +1,101 @@
+---
+title: "STAT 716 Homework 3"
+author: "Vitaly Druker"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+
+```
+
+# Exercise 3 (section 3.7)
+
+X_1 = GPA 20
+X_2 = IQ .07
+X_3 = Gender (1 for female)  35
+X_4 = GPA:IQ .01
+X_5 = GPA:Gender -10
+
+~ thousand of dollars
+
+```{r}
+q3_a <- function(gpa, iq, gender){
+  50 + gpa*20 + iq*.07 + gender*35 + gpa*iq*.01 + gpa*gender*-10
+}
+
+q3_a(1, 110, 1)
+q3_a(1, 110, 0)
+
+
+q3_a(4, 110, 1)
+q3_a(4, 110, 0)
+
+
+```
+
+i) is not true for low values of GPA (females may make more when there are lower GPAs)
+
+ii) same as above but the other - Not true
+
+iii) TRUE
+
+iv) FALSE
+
+
+b)
+```{r}
+
+q3_a(4, 110, 1)
+
+```
+
+c)
+
+It's size does not imply any/or lack of evidence - it can be a problem with scaled values (e.g. IQ is very large compared with other values in the data set)
+
+
+Question 13:
+
+
+```{r}
+set.seed(1)
+# a
+x <- rnorm(100)
+# b
+eps <- rnorm(100, mean = 0, sd = .25)
+# c
+y <- -1 + 0.5*x + eps
+# d
+plot(x, y)
+```
+
+Fairly strong linear relationship
+
+```{r}
+# e
+mod1 <- lm(y ~ x)
+summary(mod1)
+```
+
+```{r}
+# f 
+data.frame(x = x, y = y) %>% 
+  ggplot(aes(x = x, y = y)) +
+  geom_point() +
+  geom_abline(slope = .49973, intercept = -1.009)
+
+
+```
+
+```{r}
+#g 
+mod2 <- lm(y ~ x + I(x^2))
+summary(mod2)
+
+```
+
+
+
