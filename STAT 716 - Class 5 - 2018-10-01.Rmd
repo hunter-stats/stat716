@@ -23,6 +23,7 @@ simple_data <- bind_rows(x1_teal, x1_red)
 simple_data  %>% 
   ggplot(aes(x, fill = isBlue, color = isBlue)) + 
   geom_density(alpha = 0.5)
+
 ```
 
 
