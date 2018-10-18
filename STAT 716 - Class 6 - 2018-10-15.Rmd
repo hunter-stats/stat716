@@ -139,11 +139,14 @@ alpha_fun <- function(data, index){
   
 }
 
+sample(nrow(Portfolio), nrow(Portfolio), replace = TRUE) %>% sort
+
 num_boot <- 1000
 
 out <- rep(0, num_boot)
 
-for( i in 1:num_boot){
+set.seed(1)
+for(i in 1:num_boot){
   boot_samp <- sample(nrow(Portfolio), nrow(Portfolio), replace = T)
   out[i] <- alpha_fun(Portfolio,  boot_samp)
 }
@@ -152,9 +155,13 @@ for( i in 1:num_boot){
 mean(out)
 sd(out)
 
+quantile(out, c(.25, .5, .75))
+hist(out)
 
 library(boot)
 boot(Portfolio, alpha_fun, R = 1000) 
+
+alpha_fun(Portfolio, 1:nrow(Portfolio))
 ```
 
 
