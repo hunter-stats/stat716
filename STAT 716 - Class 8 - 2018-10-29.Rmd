@@ -26,11 +26,27 @@ Improvements on least squares
  
  
 # Subset Selection
+
+First idea - let's look at all combinations possible.
+
  If we have p predictors - how many models are there?
  
  $\binom{p}{k}$
   
 where k runs from 1 to p.
+
+```{r}
+total_params <- 2
+
+# start from 0 because of the null model
+total_models <- sapply(0:total_params, function(x){
+  choose(total_params, x)
+}) 
+
+sum(total_models) 
+
+2^total_params
+```
  
  Issues with measure of accuracy
  
@@ -148,4 +164,96 @@ Any example where high variability of x does not depend on y?
 It's like fitting multiple linear regression, one after another on the residuals of the previous method.
 
 
- 
+# Examples
+
+## Best Subset Selection
+
+```{r}
+library(ISLR)
+library(leaps)
+
+
+d_hit <- Hitters %>% 
+  filter(complete.cases(.))
+
+
+regfit_full <- regsubsets(Salary ~ ., d_hit, nvmax = 19)
+summary(regfit_full)
+```
+
+```{r}
+reg_fit_summary <- summary(regfit_full)
+
+reg_fit_summary
+```
+
+```{r}
+library(tidyr)
+data.frame(
+  vars = 1:length(reg_fit_summary$rss),
+  rss = reg_fit_summary$rss,
+  adjr2 = reg_fit_summary$adjr2,
+  cp = reg_fit_summary$cp,
+  bic = reg_fit_summary$bic) %>%
+  # put data into 'long' format
+  gather("error", "val",-vars) %>%
+  group_by(error) %>%
+  # label the best value
+  mutate(best_val = ifelse(error %in% c("adjr2"),  
+                           val == max(val), # we want the max adjr2
+                           val == min(val))) %>% # This is for all other errors
+  mutate(label = ifelse(best_val, vars, NA)) %>%
+  ggplot(aes(x = vars, y = val, label = label)) +
+  geom_line() + facet_wrap( ~ error, scales = "free") +
+  geom_label()
+
+```
+
+
+```{r}
+
+regfit_forward <- regsubsets(Salary ~ ., d_hit, nvmax = 19, method = "forward")
+plot(regfit_forward, scale = "Cp")
+
+full_mod <- lm(Salary ~ .,  data = d_hit)
+null_mod <- lm(Salary ~ 1, data = d_hit)
+step(null_mod, list(
+  upper = lm(Salary ~ .,  data = d_hit),
+  lower = lm(Salary ~ 1,  data = d_hit)), 
+  direction = "both")
+```
+
+## Picking using CV
+
+```{r}
+library(caret)
+
+
+train_object <- train(
+  Salary ~ .,
+  data = d_hit,
+  method = "leapSeq",
+  trControl = trainControl(
+    method = "repeatedcv",
+    number = 10,
+    repeats = 5,
+    returnResamp = "all",
+    selectionFunction = "oneSE"
+  ),
+  tuneGrid = data.frame(nvmax = 1:19)
+)
+
+resamps <- length(train_object$control$index)
+train_object$results %>%
+  ggplot(aes(
+    x = nvmax,
+    y = RMSE,
+    ymin = RMSE - RMSESD / sqrt(resamps),
+    ymax = RMSE + RMSESD / sqrt(resamps)
+  )) +
+  geom_pointrange()
+
+```
+
+
+
