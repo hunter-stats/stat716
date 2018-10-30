@@ -1,0 +1,129 @@
+---
+title: "Bias Variance Tradeoff"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(ISLR)
+library(ggplot2)
+```
+
+
+
+
+https://web.engr.oregonstate.edu/~tgd/classes/534/slides/part9.pdf
+
+https://daviddalpiaz.github.io/r4sl/simulating-the-biasvariance-tradeoff.html
+
+
+
+```{r}
+num_boot <- 200
+
+degrees <- 1:10
+
+resample_boot_oob <- function(data, n, id = ".id"){
+  # function to create bootstrap along with out of bag indexes
+  tot_length <- nrow(data)
+  
+  boot_samples <- lapply(1:n, function(x){
+    sample(tot_length, tot_length, replace = T)
+  })
+  
+  oob_samples <- lapply(boot_samples, function(x){
+    (1:tot_length)[!(1:tot_length %in% x)]
+  })
+  
+  inbag_sample <- lapply(boot_samples, function(x){
+    sample(x, 1)
+  })
+  
+  
+  
+  out <- tibble(
+    boot_sample = boot_samples,
+    inbag_sample = 118,
+    oob_samples = sample(boot_sample, 1)
+  )
+  
+  out[[id]] <- 1:n
+  out
+}
+
+# Slide 20
+# first bullet/ third_bullet
+boot_df <- resample_boot_oob(Auto,num_boot)
+boot_df <- boot_df %>% 
+  crossing(degrees = degrees)
+
+# second bullet
+boot_df <- boot_df %>% 
+  mutate(lm_mod = map2(degrees, boot_sample, ~lm(mpg ~ poly(horsepower, degree = .x), data = Auto[.y, ])))
+
+
+# fourth
+
+
+boot_df <- boot_df %>% 
+  mutate(h_b = map2(lm_mod, inbag_sample, ~predict(.x, Auto[.y, ]))) %>% 
+  mutate(each_df  = map2(inbag_sample, h_b, ~tibble(
+    index = .x,
+    predicted = .y,
+    actual = Auto$mpg[.x]
+  )))
+
+```
+
+
+```{r}
+
+
+
+
+# clean up/Slide 21
+
+analytical_df <- boot_df %>% 
+  select(.id, degrees, each_df) %>% 
+  unnest()
+
+analytical_df %>% 
+  group_by(degrees, index) %>% 
+  mutate(hbar = mean(predicted)) %>% 
+  summarise(bias_sq_mod = mean((predicted - actual)^2),
+            var_mod = var(predicted)) %>% 
+  group_by(degrees) %>% 
+  # summarise_at(vars(bias_sq_mod, var_mod), mean, na.rm = T) %>% 
+  gather("error", "val", bias_sq_mod, var_mod) %>% 
+  ggplot(aes(x = degrees, y = val, color = error)) +
+  geom_line(aes(group = paste0(index,error))) +
+  facet_wrap(~error, scales = "free") #+ 
+    # geom_smooth(method = "loess")
+```
+
+```{r}
+which(Auto$horsepower == 75)
+
+Auto %>% 
+  mutate(chosen = row_number() %in% specific_pts) %>% 
+  ggplot(aes(x = horsepower, y = mpg, color = chosen)) + geom_point()
+
+auto_sd <- Auto %>% 
+  mutate(cut_hp = cut(horsepower, 30)) %>% 
+  group_by(cut_hp) %>% 
+  summarise(mean_hp = mean(horsepower),
+            mean_mpg = mean(mpg),
+            var_mpg = var(mpg),
+            pts = n()) 
+auto_sd %>% 
+  ggplot(aes(x = mean_hp, y = var_mpg, size = pts)) +geom_point()
+
+
+auto_sd %>% 
+  ggplot(aes(x = mean_mpg, y = var_mpg)) + 
+  geom_point()
+
+
+```
+
