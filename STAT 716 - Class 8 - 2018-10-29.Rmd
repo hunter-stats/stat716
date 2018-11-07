@@ -1,11 +1,13 @@
 ---
 title: "STAT 716 - Class 8 - 2018-10-29"
 author: "Vitaly Druker"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
  
  
-```{r}
+```{r, include = FALSE}
 library(tidyverse)
 ```
 
@@ -159,6 +161,8 @@ Tuning parameter: number of priniciple componensts. It makes the assumption that
 
 Any example where high variability of x does not depend on y?
 
+ 
+
 ## Partial Least Squares
 
 It's like fitting multiple linear regression, one after another on the residuals of the previous method.
@@ -172,6 +176,7 @@ It's like fitting multiple linear regression, one after another on the residuals
 library(ISLR)
 library(leaps)
 
+complete.cases(Hitters)
 
 d_hit <- Hitters %>% 
   filter(complete.cases(.))
@@ -215,8 +220,9 @@ data.frame(
 regfit_forward <- regsubsets(Salary ~ ., d_hit, nvmax = 19, method = "forward")
 plot(regfit_forward, scale = "Cp")
 
-full_mod <- lm(Salary ~ .,  data = d_hit)
+# full_mod <- lm(Salary ~ .,  data = d_hit)
 null_mod <- lm(Salary ~ 1, data = d_hit)
+
 step(null_mod, list(
   upper = lm(Salary ~ .,  data = d_hit),
   lower = lm(Salary ~ 1,  data = d_hit)), 
@@ -238,8 +244,7 @@ train_object <- train(
     number = 10,
     repeats = 5,
     returnResamp = "all",
-    selectionFunction = "oneSE"
-  ),
+    ),
   tuneGrid = data.frame(nvmax = 1:19)
 )
 

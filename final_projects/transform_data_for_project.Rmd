@@ -1,0 +1,74 @@
+---
+title: "Transform Data for Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(purrr)
+```
+
+# Wine Data
+
+https://archive.ics.uci.edu/ml/datasets/wine+quality
+
+```{r}
+wine_files <- list.files('wine/raw', full.names = T)
+names(wine_files) <- c("red", "white")
+wine_data <- map_df(wine_files, ~read_delim(.x, delim = ";"), .id = "wine_type")
+
+
+
+set.seed(3)
+train_sample <- sample(nrow(wine_data), nrow(wine_data)*.7)
+
+train_wine <- wine_data[train_sample, ]
+test_wine <- wine_data[-train_sample, ]
+test_out <- test_wine %>% 
+  mutate(id = 1:nrow(.), 
+         quality = NULL)
+write_csv(train_wine,na = "", path = 'wine/transformed/train_data.csv')
+write_csv(test_out,na = "", path = 'wine/transformed/test_data.csv')
+```
+
+# Cancer
+
+https://archive.ics.uci.edu/ml/datasets/Cervical+cancer+%28Risk+Factors%29
+
+```{r}
+cancer_data <- read_csv("cancer/raw/risk_factors_cervical_cancer.csv")
+
+train_sample <- sample(nrow(cancer_data), nrow(cancer_data)*.6)
+
+train_cancer <- cancer_data[train_sample, ]
+test_cancer <- cancer_data[-train_sample, ]
+test_out <- test_cancer %>% 
+  mutate(id = 1:nrow(.), 
+         Biopsy = NULL)
+write_csv(train_cancer,na = "", path = 'cancer/transformed/train_data.csv')
+write_csv(test_out,na = "", path = 'cancer/transformed/test_data.csv')
+```
+# Online News Popularity
+
+https://archive.ics.uci.edu/ml/datasets/Online+News+Popularity
+
+```{r}
+online_data <- read_csv("onlinenews/raw/OnlineNewsPopularity.csv")
+
+train_sample <- sample(nrow(online_data), nrow(online_data)*.7)
+
+train_online <- online_data[train_sample, ]
+test_online <- online_data[-train_sample, ]
+test_out <- test_online %>% 
+  mutate(id = 1:nrow(.), 
+         shares =  NULL)
+write_csv(train_online,na = "", path = 'onlinenews/transformed/train_data.csv')
+write_csv(test_out,na = "", path = 'onlinenews/transformed/test_data.csv')
+
+```
+
+

@@ -1,0 +1,40 @@
+---
+title: "STAT 716 - Class 9 - 2018-11-05"
+author: "Vitaly Druker"
+output: html_document
+---
+ 
+ 
+```{r}
+library(tidyverse)
+```
+
+## Polynomial regression
+
+## global function
+
+
+Step Functions localize everything,
+cut points categorical dummy variables
+
+## Basis functions
+
+general funcionts
+
+
+# Regression Splines
+
+piecewise polinomial regression
+
+show page 272
+
+
+piecwise cubic regression
+where to put knots?
+
+Natural splines
+
+# Smoothing Splines
+
+
+
