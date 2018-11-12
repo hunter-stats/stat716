@@ -10,10 +10,10 @@ library(tidyverse)
 ```
 
 ## Polynomial regression
+ global function - this can be an issue - especially at the outer edges
 
-## global function
 
-
+## Step Functions
 Step Functions localize everything,
 cut points categorical dummy variables
 
@@ -32,9 +32,41 @@ show page 272
 piecwise cubic regression
 where to put knots?
 
+
+spline - continuous on second derivative
+
+
 Natural splines
+
+
+the function is required to be linear at the boundary (in the region where X is smaller than the smallest knot, or larger than the largest knot). 
+
 
 # Smoothing Splines
 
+$$
+\sum_{i = 1}^n(y_i - g(x_i))^2 + \lambda\int{g''(t)^2dt}
+$$
 
+Loss + penalty function
 
+2nd dervative is a measure of roughness
+
+The function g(x) that minimizes (7.11) can be shown to have some spe- cial properties: it is a piecewise cubic polynomial with knots at the unique values of x1,...,xn, and continuous first and second derivatives at each knot. Furthermore, it is linear in the region outside of the extreme knots. In other words, the function g(x) that minimizes (7.11) is a natural cubic spline with knots at x1,...,xn! 
+
+effective parameters
+
+n to 2 as lamda goes to ininity
+
+you can use loocv to calc
+
+$$
+RSS_{cv} = \sum_{i = 1}^n(\frac{y_i - \hat{g}_\lambda(x_i)}{1 - \{{S_\lambda}\}_{ii}})^2
+
+$$
+Local Regression
+
+weighted regressoin,
+
+choose points within x_0.
+can be linear or w/e

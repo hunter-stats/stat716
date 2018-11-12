@@ -243,7 +243,7 @@ train_object <- train(
     method = "repeatedcv",
     number = 10,
     repeats = 5,
-    returnResamp = "all",
+    returnResamp = "all"
     ),
   tuneGrid = data.frame(nvmax = 1:19)
 )
@@ -261,4 +261,54 @@ train_object$results %>%
 ```
 
 
+# Lasso/Ridge Regression
+
+```{r}
+
+x <- model.matrix(Salary~. -1 ,d_hit)
+y <- d_hit$Salary
+
+```
+
+```{r}
+library(glmnet)
+
+grid=10^seq(10,-2,length=100)
+ridge.mod=glmnet(x,y,alpha=0,lambda=grid)
+
+cv_mod_ridge <- cv.glmnet(x,y,alpha=0,lambda=grid)
+
+plot(cv_mod)
+cv_mod$lambda.1se
+
+
+
+cv_mod_lasso <- cv.glmnet(x,y,alpha=1,lambda=grid)
+plot(cv_mod_lasso)
+
+coef(cv_mod_ridge, s = "lambda.min")
+
+```
+
+
+```{r}
+library(pls)
+set.seed(2)
+
+pcr.fit = pcr(Salary ~ ., data = d_hit, scale = TRUE, validation = "CV")
+
+train_sub <- sample(nrow(d_hit), .7*nrow(d_hit))
+
+summary(pcr.fit)
+validationplot(pcr.fit,val.type="MSEP")
+
+pcr_fit_train <- pcr(Salary ~ ., data = d_hit, scale = TRUE, validation = "CV", subset = train_sub)
+
+pcr.pred=predict(pcr.fit,d_hit[-train_sub,],ncomp=7)
+mean((pcr.pred-d_hit[-train_sub,"Salary"])^2)
+```
+
+```{r}
+
+```
 
