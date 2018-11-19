@@ -278,7 +278,6 @@ ridge.mod=glmnet(x,y,alpha=0,lambda=grid)
 
 cv_mod_ridge <- cv.glmnet(x,y,alpha=0,lambda=grid)
 
-plot(cv_mod)
 cv_mod$lambda.1se
 
 
