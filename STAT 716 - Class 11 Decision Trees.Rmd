@@ -1,0 +1,359 @@
+---
+title: "STAT 716 - Class 11 2016-11-26"
+author: "Vitaly Druker"
+output: pdf_document
+---
+ 
+ 
+```{r, include = FALSE}
+library(tidyverse)
+library(purrr)
+library(tidyr)
+library(caret)
+library(ggplot2)
+library(ISLR)
+```
+
+# Tree Based Methods
+
+This is a method of splitting up the predictor space into sections.
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+
+rpart(Salary ~ Years + Hits, Hitters, control = rpart.control(maxdepth = 2)) %>% 
+  rpart.plot()
+
+
+Hitters %>% 
+  ggplot(aes(x = Years, y = Hits)) + geom_point()
+
+```
+
+
+Node - is a decision point
+
+Terminal Node/Leaf - the final end of the tree or the predictor
+Internal Node
+
+How does prediction work?
+
+How do we make a tree?
+
+1. Divide the predictor space into non overlapping regions. This means over _all_ predictors.
+
+2. Make a prediction for everyone that falls into a bucket
+
+Ideally we could look at every single subset of features but that is not computationally feasable (akin to best subset) so we take a top down approach. Using recursive inarty splitting. 
+
+
+1. Pick a predictor and cut into 2 pieces by way of reducing RSS.
+
+We do this by minimizing the joint RSS (it's the same as a step function). What does the RSS look like?
+
+We then split one of those two regions to find the best next split.
+
+This continues until a stoping criteria is reached (there are many different examples of stopping criteria that we will see in the lab)
+
+Unfortunately this is a high variance method - we can't keep going or we will overfit the data.
+
+
+## Cost Complexity Pruning
+
+What can we penalize?
+
+Prune back for a value that has a penalty of alpha * |T| (the number of terminal nodes). 
+
+```{r}
+d_hit <- Hitters %>% 
+  select(Salary, Years, Hits) %>% 
+  filter(complete.cases(.))
+
+train(Salary ~ Years + Hits, d_hit, method = "rpart", tuneLength = 10) %>% plot
+
+
+
+```
+
+## Classification Trees
+
+
+What error do we use?
+
+Classification Error?
+
+It is not sensative enough
+Gini Coefficient can be used:
+
+$$
+G = \sum_i^K{\hat{p}_{mk}(1-\hat{p}_{mk})}
+$$
+
+Cross Entropy
+$$
+\sum_i^K{\hat{p}_{mk}log(\hat{p}_{mk})}
+$$
+
+
+You can use either Gini or Cross Entropy to build trees - but use classification error to prune them
+
+
+
+Benefits
+
+Very easy to explain
+Nice to display
+Handle both qual and quant variable easily.
+
+Issues
+
+Hi variability
+ - How does pruning help with variability of the tree? Where is the higher variability?
+
+
+## Dealing with Issues of Trees
+
+### Bagging
+
+Bootstrap Aggregation (or bagging) can help methods that have a high variance without loosing too much bias.
+
+OOB Error Estimation - Natural cross validation.
+
+Is the number of bootstraps a tuning parameter?
+
+How do we interpert the models?
+You can look at the reduction of RSS when a variable is added and average it to see what's most important.
+
+
+### Random Forests
+
+Try to decorrelate the trees by using a random sample of m predictors
+
+$m = \sqrt{p}$
+
+If there is a strong predictor it will show up at the top of each bagged try so we try not to use it every time.
+
+## Homework
+
+Read Chapter 8
+Chapter 8 question 7
+
+## Labs
+
+### Basic Trees
+
+Fitting a regular tree:
+
+I generally use `rpart` instead of `tree`. It works very similarly you can [read more here](https://cran.r-project.org/web/packages/rpart/vignettes/longintro.pdf)
+
+The largest difference is that you see the parameter cp used
+
+```{r}
+d_carseats <- Carseats %>% 
+  mutate(High = ifelse(Sales > 8, "Yes", "No")) %>% 
+  mutate(High = as.factor(High))
+
+basic_tree <- rpart(High ~ . - Sales, d_carseats)
+```
+```{r}
+rpart.plot(basic_tree)
+```
+```{r}
+basic_tree$cptable
+```
+
+the xerror has not bottomed out yet... let's lower cp
+
+```{r}
+set.seed(1298)
+full_model <- rpart(High ~ . - Sales, d_carseats, cp = 0.0001, minsplit = 5)
+full_model$cptable
+pruned_model <- prune(full_model, cp = 0.015243902)
+
+# now let's train/test split...
+
+
+```
+
+It can be tedious toi rewrite everything with the test train methodology and make it repeatable. There are some different frameworks you can use in R that can improve your workflow
+
+```{r}
+library(modelr)
+
+bestCP <- function(rpart_obj){
+  cptable <- rpart_obj$cptable
+  best_row <-which.min(cptable[,"xerror"])
+  best_cp_sd <- cptable[best_row, "xerror"] + cptable[best_row, "xstd"]
+  first_that_passes <- which(cptable[,"xerror"] < best_cp_sd)[1]
+  
+  cptable[first_that_passes , "CP"] 
+}
+
+evalHighTreeModel <- function(model, test_data){
+  test_data <- as.data.frame(test_data)
+  predictions <- predict(model, test_data, type = "class")
+  mean(predictions == test_data$High)
+}
+
+
+d_carseats_model <- d_carseats %>% 
+  # create a test/train split
+  crossv_mc(n = 1, test = 0.5) %>% 
+  #create the main model off of the train data
+  mutate(basic_mod = map(train, ~rpart(High ~ . - Sales, data = .x, cp = 0, minsplit = 5))) %>% 
+  #which was the best cp? using our function
+  mutate(best_cp = map_dbl(basic_mod, bestCP)) %>% 
+  # prune the model
+  mutate(pruned_mod = map2(basic_mod, best_cp, ~prune(.x, cp = .y))) %>% 
+  #evaluate the model
+  mutate(model_eval = map2_dbl(basic_mod, test, ~evalHighTreeModel(.x, .y)))
+  
+
+
+evalHighTreeModel <- function(model, test_data){
+  test_data <- as.data.frame(test_data)
+  #have to modify evaluation function because caret standardizes type argument to prob or raw
+  predictions <- predict(model, test_data, type = "raw")
+  mean(predictions == test_data$High)
+}
+
+d_carseats_model_caret <- d_carseats %>% 
+  # create a test/train split
+  crossv_mc(n = 10, test = 0.5) %>% 
+  #train statement - can be simpler but we tried to make it similar
+  # to above
+  mutate(basic_mod = map(train, ~train(High ~ . - Sales, 
+                                       data = as.data.frame(.x), 
+                                       method = "rpart",
+                                       tuneLength = 5, 
+                                      trControl = trainControl(method = "cv",
+                                                    selectionFunction = "oneSE")))) %>% 
+  mutate(model_eval = map2_dbl(basic_mod, test, ~evalHighTreeModel(.x, .y)))
+
+d_carseats_model_caret 
+```
+
+### Random Forests
+
+```{r}
+library(randomForest)
+set.seed(1238)
+
+ref_mod <- randomForest(High ~ . - Sales, d_carseats)
+
+dim(d_carseats)
+
+
+ref_mod <- randomForest(High ~ . - Sales, d_carseats, ntree = 1000)
+
+
+# Error rate by tree number
+
+ref_mod$err.rate %>% 
+  as.data.frame() %>% 
+  mutate(num_trees = row_number()) %>% 
+  ggplot(aes(x = num_trees, y = OOB)) +
+  geom_line()
+
+```
+
+
+Variable Importance Plot
+
+```{r}
+randomForest(High ~ . - Sales, d_carseats, mtry = 5, importance = TRUE) %>% 
+  varImpPlot()
+```
+
+
+```{r}
+getModelInfo("rf")[[1]]$parameters
+
+train(High ~ . - Sales, d_carseats, method= "rf", trControl = trainControl(method = "cv"))
+
+d_carseats_model_caret <- d_carseats %>% 
+  # create a test/train split
+  crossv_mc(n = 10, test = 0.5) %>% 
+  #train statement - can be simpler but we tried to make it similar
+  # to above
+  mutate(basic_mod = map(train, ~train(High ~ . - Sales, 
+                                       data = as.data.frame(.x), 
+                                       method = "rpart",
+                                       tuneLength = 5, 
+                                      trControl = trainControl(method = "cv",
+                                                    selectionFunction = "oneSE")))) %>% 
+  mutate(model_eval = map2_dbl(basic_mod, test, ~evalHighTreeModel(.x, .y)))
+
+```
+
+### Boosting
+
+```{r}
+library(gbm)
+
+try(
+  boost_mod <- gbm(High ~ . - Sales, data = d_carseats, distribution = "bernoulli", verbose = FALSE)
+)
+d_carseats_gbm <- d_carseats %>% 
+  mutate(High = as.numeric(High == "Yes"))
+
+boost_mod <- gbm(High ~ . - Sales, data = d_carseats_gbm, distribution = "bernoulli", verbose = FALSE)
+
+summary(boost_mod)
+```
+
+ Let's try with caret...
+```{r}
+getModelInfo("gbm", regex = F)[[1]]$parameters
+tune_grid <- 
+  expand.grid(n.trees = c(100, 500),
+              interaction.depth = c(1,4),
+              n.minobsinnode = 10,
+              shrinkage = c(.2, .01)
+              )
+
+
+d_carseats_model_caret <- d_carseats %>% 
+  # create a test/train split
+  crossv_mc(n = 1, test = 0.5) %>% 
+  #train statement - can be simpler but we tried to make it similar
+  # to above
+  mutate(basic_mod = map(train, ~train(High ~ . - Sales, 
+                                       data = as.data.frame(.x), 
+                                       method = "gbm",
+                                       tuneGrid = tune_grid, 
+                                       verbose = FALSE,
+                                      trControl = trainControl(method = "cv",
+                                                    selectionFunction = "oneSE")))) %>% 
+  mutate(model_eval = map2_dbl(basic_mod, test, ~evalHighTreeModel(.x, .y)))
+
+d_carseats_model_caret
+d_carseats_model_caret$basic_mod[[1]]
+d_carseats_model_caret$basic_mod[[1]] %>% plot()
+
+tune_grid <- 
+  expand.grid(n.trees = c(50, 100, 500),
+              interaction.depth = c(1,4),
+              n.minobsinnode = 10,
+              shrinkage = c(.2, .01)
+              )
+
+
+d_carseats_model_caret <- d_carseats %>% 
+  # create a test/train split
+  crossv_mc(n = 1, test = 0.5) %>% 
+  #train statement - can be simpler but we tried to make it similar
+  # to above
+  mutate(basic_mod = map(train, ~train(High ~ . - Sales, 
+                                       data = as.data.frame(.x), 
+                                       method = "gbm", 
+                                       verbose = FALSE,
+                                       tuneGrid = tune_grid, 
+                                      trControl = trainControl(method = "cv")))) %>% 
+  mutate(model_eval = map2_dbl(basic_mod, test, ~evalHighTreeModel(.x, .y)))
+
+d_carseats_model_caret$basic_mod[[1]] %>% plot
+```
+
