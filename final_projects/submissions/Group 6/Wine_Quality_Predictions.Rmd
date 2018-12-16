@@ -1,0 +1,329 @@
+---
+title: "Wine_Quality_Predictions"
+author: "Group 6"
+date: "12/9/2018"
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
+---
+```{r, echo=F, warning=F, message=F, results='hide'}
+library(tidyverse)
+library(tidyquant)
+library(stringr)
+library(forcats)
+library(stringr)
+library(forcats)
+library(cowplot)
+library(fs)
+library(tidyverse)
+library(h2o)
+source(file = "wine_functions.R")
+
+h2o.init(max_mem_size = "5g")
+
+# Load Data
+wine_train_orginal <- read_csv("Data/original/train_data.csv")
+
+h2o.no_progress()
+
+#rename the training and validation data
+wine_train_orginal <- rename_wine(wine_train_orginal)
+```
+
+
+## Introduction
+
+Our goal for this project is to conduct an analysis on Wine Quality data from the University of California, Irvine Machine Learning Repository. The data are the results of a chemical analysis of wines grown in the same region in Italy, but derived from three different cultivars. The data has 13 attributes which are wine type, fixed acidity, citric acid, residual sugar, chlorides, free sulfur dioxide, total sulfur dioxide, density, pH, sulphates, alcohol, and quality. We are interested to see if these attributes has an impact on the quality of wine. Therefore, our goal is to use machine learning to see if we can build an accurate model to predict the wine quality. Below you can see the features that were used to build this model.
+
+  
+## Description of Data
+
+The data contains 4547 observations with 12 features and 1 outcome variable. Also, the data has two missing values in feature total_sulfur_dioxide.
+
+
+**Features** :
+
+* **wine type** - 1096 Red and 3451 White wine
+
+* **fixed acidity** - Most acids involved with wine or fixed or nonvolatile
+
+* **volatile acidity** - The amount of acetic acid in wine, which at too high of levels can lead to an unpleasant, vinegar taste
+
+* **citric acid** - the amount of acetic acid in wine, which at too high of levels can lead to an unpleasant, vinegar taste 
+
+* **residual sugar** - The amount of sugar remaining after fermentation stops, it's rare to find wines with less than 1 gram/liter and wines with greater than 45 grams/liter are considered sweet 
+
+* **chlorides** - The amount of salt in the wine 
+
+* **free sulfur dioxide** - The free form of SO2 exists in equilibrium between molecular SO2 (as a dissolved gas) and bisulfite ion; it prevents microbial growth and the oxidation of wine 
+
+* **total sulfur dioxide** - Amount of free and bound forms of S02; in low concentrations, SO2 is mostly undetectable in wine, but at free SO2 concentrations over 50 ppm, SO2 becomes evident in the nose and taste of wine 
+
+* **density** - the density of water is close to that of water depending on the percent alcohol and sugar content
+
+* **pH** - Describes how acidic or basic a wine is on a scale from 0 (very acidic) to 14 (very basic); most wines are between 3-4 on the pH scale 
+
+* **sulphates** - a wine additive which can contribute to sulfur dioxide gas (S02) levels, wich acts as an antimicrobial and antioxidant
+
+* **alcohol** - the percent alcohol content of the wine
+
+**Outcome Variable**: 
+
+* **quality** - score between 0 and 10
+
+
+```{r,echo=FALSE}
+knitr::kable(wine_train_orginal[1:5,], format="latex", booktabs = T, caption = "The first 5 rows") %>% 
+     kableExtra::kable_styling(latex_options="scale_down")
+```
+
+
+
+##### Histogram of features and outcome variable
+```{r}
+wine_train_orginal %>%
+  select(-wine_type, -quality) %>%
+  na.omit() %>% #remove the missing values
+  plot_hist_facet(ncol = 4)
+```
+The distributions of citric acid, total sulfur dioxide, and pH are nearly normally distributed. The distributions of fixed acidity, volatile acidity, residual sugar, sulphates, and alcohol are right skewed. The distributions for chlorides, free sulfur dioxide, density, and quality have unknown distributions. Based on the histograms, we might need to normalize or standardize the features that have right skewed or unknown distributions for prediction. 
+
+\newpage
+##### Histogram of the outcome variable quality
+```{r, echo=FALSE}
+knitr::include_graphics("Picture1.png")
+```
+
+We can see that most of the scores are between 5 and 7 with a small percentage of the wines getting a score higher than 8.
+
+
+##### The correlation between features and outcome variable quality
+```{r, fig.height=4}
+wine_train_orginal %>%
+  select(-wine_type) %>%
+  plot_cor(target = quality)
+```
+
+We can see that quality doesn’t have a strong correlation with almost all of the variables. Alcohol is the only variable that has a moderate positive correlation. Quality has a weak negative correlation with density and volatile acidity. I also split the data between red and white to see if there was any significant difference with the distribution of scores.
+
+
+```{r, echo=F}
+knitr::include_graphics("Picture3.png")
+```
+
+```{r, echo=F}
+knitr::include_graphics("Picture4.png")
+```
+
+We can see that white wine had a bigger share of high quality (8+) scores than red wine. In addition, red wine seems to have more wines that are scored 5 or below than white wines.
+
+
+Since alcohol has the strongest correction to wine quality, we plotted a scatter plot below.
+```{r, fig.height=3}
+wine_train_orginal %>%
+  ggplot(aes(x = alcohol, y = quality)) +
+  geom_jitter() + #add some variations to outcome variables.
+  geom_smooth(method = "lm")
+```
+The scatter plot above did not show a very strong correlation. Our assumption is linear regression which would not be best model to predict wine quality.
+
+
+## Methods and Results
+
+Our outcome variable quality is numerical, we are going to use the following Machine Learning Algorithms(Regression) to predict the wine quality:
+
+* Linear Regression
+* Ridge Regression
+* Lasso Regression
+* Ensemble Methods - Random Forest and Gradient Boosting Machines 
+
+We will split the data into 70% training and 30% validation. The validation set is used for model 
+selection.
+
+##### Pre Processing 
+```{r, message=F, warning=F}
+pre_processing <- function(data){
+  data %>%
+    mutate(wine_type = as.factor(wine_type)) %>% 
+    na.omit() #remove the missing values
+            
+}
+
+wine_train_orginal <- pre_processing(wine_train_orginal)
+
+
+split_h2o <- h2o.splitFrame(as.h2o(wine_train_orginal), ratios = c(0.70), seed = 1234)
+
+wine_train_h2o <- split_h2o[[1]]
+wine_valid_h2o <- split_h2o[[2]]
+```
+
+\newpage
+##### linear Regression
+```{r}
+y <- "quality"
+x <- setdiff(names(wine_train_h2o), y)
+
+wine_lm <- h2o.glm(
+  training_frame = wine_train_h2o,
+  validation_frame = wine_valid_h2o,
+  x = x,
+  y = y,
+  lambda = 0, #no regualation
+  seed = 123
+  )
+
+
+get_metrics_lm(model = wine_lm)
+```
+
+
+##### Lasso and Ridge 
+* Perform the grid search to find best lambda
+* Standarized the features
+```{r}
+#alpha = 0 for ridge regression
+#alpha = 1 for lasso
+
+glm_params <- list(lambda = 10^seq(10, -2, length.out  = 100),
+                   alpha = c(0,1))
+
+glm_grid <- h2o.grid("glm", 
+                      x = x, 
+                      y = y,
+                      training_frame = wine_train_h2o,
+                      validation_frame = wine_valid_h2o,
+                      hyper_params = glm_params,
+                      standardize = T,
+                      seed = 12)
+
+glm_grid_metrics<- h2o.getGrid(grid_id = glm_grid@grid_id,
+                             sort_by = "mse",
+                             decreasing = F)
+best_model_glm <- h2o.getModel(glm_grid_metrics@model_ids[[1]])
+get_metrics_lm(model =  best_model_glm)
+```
+
+
+##### Gradient Boosting Machine
+* Train the GBM as base model
+* Perform grid search to tune parameters for number of trees and maximum of depth
+```{r}
+wine_gbm <- h2o.gbm(
+  x = x,
+  y = y,
+  training_frame = wine_train_h2o,
+  validation_frame = wine_valid_h2o,
+  seed = 123,
+  model_id = "wine_gbm"
+)
+
+get_metrics_tree(wine_gbm)
+
+#grid search
+parameters_gbm <- list(
+  ntrees = c(50,100,200),
+  max_depth = c(5,8,10,15))
+
+grid_gbm <- h2o.grid(grid_id = "gbm_TUNE",
+                    "gbm", 
+                    hyper_params = parameters_gbm,
+                    y = y, 
+                    x = x,
+                    training_frame = wine_train_h2o,
+                    validation_frame = wine_valid_h2o,
+                    seed = 123
+                    )
+
+gbm_sorted_grid <- h2o.getGrid(grid_id = "gbm_TUNE", sort_by = "mse")
+
+best_model_gbm <- h2o.getModel(gbm_sorted_grid@model_ids[[1]])
+
+get_metrics_tree(model = best_model_gbm)
+```
+
+
+##### Random Forest
+* Train the RF as base model
+* Perform grid search to tune parameters for number of trees and maximum of depth
+```{r}
+wine_rf <- h2o.randomForest(
+  x = x,
+  y = y,
+  training_frame = wine_train_h2o,
+  validation_frame = wine_valid_h2o,
+  seed = 123,
+  model_id = "wine_rf"
+)
+
+get_metrics_tree(model = wine_rf)
+
+#grid search find best combination for number of tress and
+#maximum of depth.
+
+parameters_rf <- list(
+  ntrees = c(300,500,600,700),
+  max_depth = c(10,15,20,25,30))
+
+grid_rf <- h2o.grid(grid_id = "RF_TUNE",
+                    "randomForest", 
+                    hyper_params = parameters_rf,
+                    y = y, 
+                    x = x,
+                    training_frame = wine_train_h2o,
+                    validation_frame = wine_valid_h2o,
+                    seed = 123
+                    )
+
+rf_sorted_grid <- h2o.getGrid(grid_id = "RF_TUNE", sort_by = "mse")
+
+best_model_rf <- h2o.getModel(rf_sorted_grid@model_ids[[1]])
+
+get_metrics_tree(model = best_model_rf)
+
+```
+
+
+
+## Dicussion
+
+```{r}
+models <- c(best_model_glm, best_model_gbm, best_model_rf)
+
+h2o.mse_valid <- function(model){
+  h2o.mse(model, valid = T)
+}
+
+
+
+df <- tibble(model = factor(c("LM", "GBM", "RF")),
+       train_mse = map_dbl(.x = models, .f = h2o.mse),
+       validation_mse = map_dbl(.x = models, .f = h2o.mse_valid)
+)
+
+knitr::kable(df)
+
+```
+
+The best method to predict wine quality is Random Forest.  The table above shows that it has the lowest validation mse.  The GBM has very low training mse, but high validation mse. It indicates that the GBM is overfitted. The linear model do not have enough flexiablity to find the data.  Therefore, Random Forest is the best method.
+
+
+##### Variables Importance
+```{r, fig.height=4}
+h2o.varimp_plot(best_model_rf)
+```
+
+According the variable importance plot, the top 3 most important features are alcohol, volatile acidity,
+and density. 
+
+In order to improve the model, we need more data to make our outcome variable quality more evenly distributed.  In our training dataset, we only have 4 observation that has quality score 9. Also, the model like GBM and Ranfom Forest tend to work better with larger data, because it won't overfitted the data.
+
+
+\newpage
+# Code Appendix
+```{r, code = readLines("wine_functions.R")}
+
+```
+

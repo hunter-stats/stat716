@@ -1,0 +1,121 @@
+---
+title: "716 Final Project"
+author: "Miu ki Yip"
+date: "11/18/2018"
+output: pdf_document
+---
+
+```{r load_lib}
+#load libs
+library(tidyverse)
+library(randomForest)
+```
+
+Random Forest
+
+```{r}
+#load in csv file
+news_data = read.csv("STAT716_Assignments/final_project/transformed/train_data.csv")
+```
+
+
+```{r}
+#correlation
+news_data_wo_url = news_data[,-1]
+corr_matrix = cor(news_data[,-1])
+summary(corr_matrix)
+cor_shares = corr_matrix[,ncol(corr_matrix)]
+#Doesn't seem to have a lot of variables with strong + - correlation
+cor_shares>.05
+cor_shares< (-.05)
+```
+
+
+Random Forest
+```{r}
+library(randomForest)
+set.seed(1)
+train = sample(1:nrow(news_data_wo_url), nrow(news_data_wo_url) / 2)
+#split news into test + train with all vars
+news_train = news_data_wo_url[train, -60]
+news_test = news_data_wo_url[-train, -60]
+#split news into test + train only get y
+y_train = news_data_wo_url[train, 60]
+y_test = news_data_wo_url[-train, 60]
+
+#error array
+mse_err = rep(NA, 5)
+
+#try rf with mtry 1, 2, 3, 4, 5
+mtry = c(1, 2, 3, 4, 5)
+color = c("red", "green", "blue", "black", "orange")
+
+#loop through mtry
+for (i in 1:length(mtry)) {
+  #rf_news = randomForest(news_train, y = y_train, xtest = news_test, ytest = y_test, mtry = mtry[i], ntree = 150) 
+  rf_news = randomForest(news_train, y = y_train, xtest = news_test, ytest = y_test, mtry = mtry[i], ntree = 500, importance = TRUE) 
+  #mse_err[i] = rf_news$test$mse
+
+  #plot
+  if( i <= 1 ){
+    plot(1:500, rf_news$test$mse, 
+         col = color[i], 
+         type = "l", 
+         xlab = "num trees", 
+         ylab = "test mse", 
+         ylim=c(170000000,190000000), 
+         main = "Number of Trees affect on MSE")    
+  } else{
+    lines(1:500, rf_news$test$mse, col = color[i], type = "l")
+  }
+}
+
+#legend
+legend("topright",
+       c("mtry 1", "mtry 2", "mtry 3", "mtry 4", "mtry 5"), 
+       col = color,
+       cex = 1,
+       lty = 1)
+
+
+
+```
+
+```{r}
+
+#use model, get variable importance
+set.seed(1)
+rf_news_m2 = randomForest(news_train,
+                          y = y_train,
+                          xtest = news_test,
+                          ytest = y_test,
+                          mtry = 2,
+                          ntree = 400,
+                          importance = TRUE) 
+
+rf_news_m2
+
+importance(rf_news_m2) 
+
+varImpPlot (rf_news_m2)
+
+```
+
+
+
+Verify with cv that this is the random forest model generated with randomforest package has this mse
+```{r}
+library(caret)
+library(ggplot2)
+library(randomForest)
+
+set.seed(1)
+
+rf_model = train(shares~., data = news_data_wo_url[train,], method = "rf", ntree = 400,
+                trControl = trainControl(method="cv", number=5),
+                prox=TRUE, allowParallel=TRUE)
+
+print(rf_model)
+
+print(rf_model$finalModel)
+```

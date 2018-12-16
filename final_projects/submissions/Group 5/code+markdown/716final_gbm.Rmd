@@ -1,0 +1,200 @@
+---
+title: "716 Final Project"
+author: "Miu ki Yip"
+date: "11/18/2018"
+output: pdf_document
+---
+
+```{r load_lib}
+#load libs
+library(tidyverse)
+library(gbm)
+library(dplyr)
+```
+
+Boosting
+
+```{r load_data}
+#load in csv file
+news_data = read.csv("STAT716_Assignments/final_project/transformed/train_data.csv")
+
+#remove url column
+news_data_wo_url = news_data[,-1]
+
+#training sample
+train = sample(1:nrow(news_data_wo_url), nrow(news_data_wo_url)/2)
+
+#shares values
+news_shares_train = news_data_wo_url[train, "shares"]
+news_shares_test = news_data_wo_url[-train ,"shares"]
+
+#training split of whole data
+news_wo_url_train = news_data_wo_url[train,]
+news_wo_url_test = news_data_wo_url[-train,]
+
+
+```
+
+```{r boost_model_cv}
+set.seed(1)
+
+#testing function with cv
+gbm_fit = gbm(
+  formula = shares ~ ., 
+              data = news_wo_url_test,
+              distribution = "gaussian", 
+              n.trees = 500,
+              interaction.depth = 1,
+              shrinkage = 0.001,
+              cv.folds = 5,
+              n.cores = NULL,
+              verbose = FALSE)  
+
+print(gbm_fit)
+
+summary(gbm_fit)
+
+#rmse
+sqrt(min(gbm_fit$cv.error))
+```
+
+```{r}
+set.seed(1)
+#grid search
+
+hyper_grid = expand.grid(
+  shrinkage = c(.01, .05, .1, .2, .3, .4, .5),
+  interaction.depth = c(1, 3, 5),
+  opt_num_trees = 0,           
+  min_cv_err = 0,    
+  n.minobsinnode = c(5, 6, 7, 8),
+  bag.fraction = c(.5, .75, 1) 
+)
+
+nrow(hyper_grid)
+
+for (i in 1:nrow(hyper_grid)) {
+  set.seed(1)
+  gbm_news = gbm(formula = shares ~ .,
+                 distribution = "gaussian",
+                 data = news_wo_url_train,
+                 shrinkage = hyper_grid$shrinkage[i],
+                 interaction.depth = hyper_grid$interaction.depth[i],
+                 n.trees = 500,
+                 n.minobsinnode = hyper_grid$n.minobsinnode[i],
+                 bag.fraction = hyper_grid$bag.fraction[i],
+                 train.fraction = .75  )
+  #train 75% of the training observations
+  
+  hyper_grid$opt_num_trees[i] = which.min(gbm_news$valid.error)
+  hyper_grid$min_cv_err[i] = min(gbm_news$valid.error)
+}
+
+hyper_grid %>% 
+  arrange(min_cv_err) %>%
+  head(10)
+
+#top ten values. training set of half the data. use 75% of the half for train and 25% for test.
+
+```
+```{r}
+set.seed(1)
+#grid search
+
+hyper_grid = expand.grid(
+  shrinkage = c(.2, .3, .4, .5),
+  interaction.depth = c(1, 3 , 5),
+  opt_num_trees = 0,        
+  min_cv_err = 0,   
+  n.minobsinnode = c(6, 7, 8),
+  bag.fraction = c(.5, .6, .7)
+)
+
+nrow(hyper_grid)
+
+for (i in 1:nrow(hyper_grid)) {
+  set.seed(1)
+  gbm_news = gbm(formula = shares ~ .,
+                 distribution = "gaussian",
+                 data = news_wo_url_train,
+                 shrinkage = hyper_grid$shrinkage[i],
+                 interaction.depth = hyper_grid$interaction.depth[i],
+                 n.trees = 500,
+                 n.minobsinnode = hyper_grid$n.minobsinnode[i],
+                 bag.fraction = hyper_grid$bag.fraction[i],
+                 train.fraction = .75  )
+  
+  hyper_grid$opt_num_trees[i] = which.min(gbm_news$valid.error)
+  hyper_grid$min_cv_err[i] = min(gbm_news$valid.error)
+}
+
+hyper_grid %>% 
+  arrange(min_cv_err) %>%
+  head(10)
+```
+
+```{r}
+#good model, lets train
+set.seed(1)
+gbm_news_last = gbm(formula = shares ~ .,
+                 distribution = "gaussian",
+                 data = news_wo_url_train, 
+                 shrinkage = .5,
+                 interaction.depth = 1,
+                 n.trees = 35,
+                 n.minobsinnode = 7,
+                 bag.fraction = .6,
+                 train.fraction = 1  )
+  
+#vis
+summary(
+  gbm_news_last, 
+  cBars = 10,
+  method = relative.influence, 
+  las = 2
+  )
+
+#test
+gbm_predict = predict(gbm_news_last, 
+                      n.trees = gbm_news_last$n.trees,
+                      news_wo_url_test)
+
+#mse
+gbm_mse = mean((gbm_predict - news_wo_url_test$shares)^2)
+gbm_mse
+```
+
+```{r}
+#final test data
+test_data = read.csv("STAT716_Assignments/final_project/transformed/test_data.csv")
+
+#remove url column
+test_data_wo_url = test_data[,-1]
+
+
+
+set.seed(1)
+gbm_news_test = gbm(formula = shares ~ .,
+                 distribution = "gaussian",
+                 data = news_data_wo_url, 
+                 shrinkage = .5,
+                 interaction.depth = 1,
+                 n.trees = 35,
+                 n.minobsinnode = 7,
+                 bag.fraction = .6,
+                 train.fraction = 1  )
+  
+#test
+gbm_predict_test = predict(gbm_news_test, 
+                      n.trees = gbm_news_test$n.trees,
+                      test_data_wo_url)
+
+test_data["shares"] <- gbm_predict_test
+
+
+write.csv(test_data, file = "STAT716_Assignments/final_project/transformed/pred_data.csv", row.names = FALSE)
+
+```
+
+
+

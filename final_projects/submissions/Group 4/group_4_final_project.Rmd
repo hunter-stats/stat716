@@ -1,0 +1,1188 @@
+---
+title: "Data Analysis (STAT 716) Final Project"
+author: "Peter Salamon, Bryan Ronga, Halid Idrissou"
+date: "12/9/2018"
+output: html_document
+---
+
+# Introduction
+
+A Portuguese bank seeks to increase its subscriber base. In pursuit of this goal, the institution conducts campaigns in which potential clients are contacted and their information collected. The bank's aim is to predict whether an individual will subscribe to their bank based on the person's demographic information and data from previous contacts with the potential client. The goal of this analysis is to produce a statistical classification model that predicts whether a client will subscribe a term deposit or not. 
+  
+```{r, message = FALSE}
+# Loading in the necessary libraries
+
+library("ggplot2")
+library("data.table")
+library("plotly")
+library("stats")
+library("scales")
+library("gridExtra")
+require(gridExtra)
+library("caret")
+library("caTools")
+library("LiblineaR")
+library("party")
+library("randomForest")
+library("e1071")
+library("class")
+library("xgboost")
+library("mlr")
+library("doParallel")
+library("openxlsx")
+library("dplyr")
+theme_set(theme_gray())
+registerDoParallel(4)
+```
+
+```{r}
+# Loading in the data sets
+
+setwd('/Users/mareksalamon/Desktop/School/Hunter/Fall Semester 2018/Data Analysis/Bank Marketing Data Analysis')
+
+train <- read.csv('train_data.csv', na.strings=c("","NA"))
+test <- read.csv('test_data.csv', na.strings=c("","NA"))
+```
+
+## Data Exploration
+
+Now that we have loaded our data, let's explore it. Ideally, we want to explore our train dataset only, in order to prevent the introduction of any subjective bias by the analyst. Although, it is possible that, if our train set requires cleaning, the test set will require cleaning in which case it will need to be explored as well. 
+
+The test dataset serves mainly as a collection of data to test the ability of our final model to predict/classify previously unseen, 'future' data.
+
+```{r}
+# dimensions of dataframe
+head(train)
+```
+
+Let us make sure that the test dataset at least possesses the same features as our train set.
+
+```{r}
+colnames(test)
+```
+
+```{r}
+# dimensions of dataframe
+dim(train)
+```
+
+There seem to be a total of 31,647 observations in the training dataset possessing 17 features. Each feature and its corresponding meaning is listed below:
+
+**Feature Glossary**
+
+*   **Client Information**
+    + *age* - age of client
+    + *job* - type of job held by client
+    + *marital* - marital status of client
+    + *education* - highest level of education completed by client
+    + *default* - has the client ever defaulted on previous debts? 
+    + *balance* - client's average yearly balance, in euros
+    + *housing* - does client possess a housing loan?
+    + *loan* - does client possess a personal loan?
+* **Information related to the last contact of the client during the current campaign**
+    + *contact* - communication type
+    + *month* - month of year
+    + *day* - day (of the month) that the client was contacted
+    + *duration* - contact duration in seconds.
+* **Miscellaneous Attributes**
+    + *campaign* - number of contacts performed during this campaign and for this client 
+    + *pdays* - number of days that passed by after the client was last contacted from a previous campaign 
+    + *previous* - number of contacts performed before this campaign and for this client
+    + *poutcome* - outcome of the previous marketing campaign for this client
+    + *y* - has the client subscribed a term deposit? (dependent var.)
+
+```{r}
+# Percent of total data that is made up of missing/NA values:
+(sum(is.na(train))/(nrow(train)*ncol(train)))*100
+```
+
+
+It seems like there are no 'NA' values in our dataset signaling that no observation is missing information. It is still possible that values other than 'NA' are being used to signify missing information in which case it will be best to include it as a separate categorical level of the feature. Even missing information may prove to be valuable information in and of itself.
+
+```{r}
+# Get list of features with only one unique value (including NAs)
+
+static.list <- character(dim(train)[2])
+i <- 1
+
+for(col in colnames(train)){
+  if(length(unique(train[[col]])) == 1){
+    static.list[i] <- col
+    i <- i + 1
+  }
+}
+
+static.list <- static.list[static.list != ""]
+static.list
+```
+
+Static columns only have a single value for all observations in the data, providing little to no additional information or predictability to the final model. For this reason, such variables should be discarded and/or excluded from the final model. Although, it seems like we do not have any static features in our dataset.
+
+```{r}
+# Get data type of each column
+str(train)
+```
+
+Based on the structure of the data, all of the features take on the reasonable data types and possess valid response values. Later on, we will take a closer look at the features and determine if they should be changed from numeric to categorical and vice-versa.
+
+```{r}
+# Summary statistics of each column
+summary(train)
+```
+
+Above, we have a summary of each feature's min/median/mean/max values, if it is a numeric variable, and unique values with their corresponding counts, if it is categorical. This will serve as a good, holistic view of the data which will prove invaluable once each feature is analyzed in more granular detail.
+
+Let us now visually explore the features available to us.
+
+```{r}
+# Let's create custom, professional looking color palettes
+
+# colors
+corpo_colors <- c(
+  `red`        = "#d11141",
+  `green`      = "#00b159",
+  `blue`       = "#00aedb",
+  `orange`     = "#f37735",
+  `yellow`     = "#ffc425",
+  `light grey` = "#cccccc",
+  `dark grey`  = "#8c8c8c")
+
+# Function to extract corpo colors as hex codes
+# '...' - Character names of corpo_colors 
+
+corpo_cols <- function(...) {
+  cols <- c(...)
+
+  if (is.null(cols))
+    return (corpo_colors)
+
+  corpo_colors[cols]
+}
+
+# We may now create custome color palettes using the colors we have selected
+
+corpo_palettes <- list(
+  `main`  = corpo_cols("red", "green", "blue", "orange", "yellow", "light grey", "dark grey"),
+
+  `cool`  = corpo_cols("blue", "green"),
+
+  `hot`   = corpo_cols("yellow", "orange", "red"),
+
+  `mixed` = corpo_cols("blue", "green", "yellow", "orange", "red"),
+
+  `grey`  = corpo_cols("light grey", "dark grey")
+)
+
+# Return function to interpolate a corpo color palette; allows for shades/new color palettes
+# "palette" - Character name of palette in drsimonj_palettes
+# "reverse" - Boolean indicating whether the palette should be reversed
+# "..." - Additional arguments to pass to colorRampPalette()
+
+corpo_pal <- function(palette = "main", reverse = FALSE, ...) {
+  pal <- corpo_palettes[[palette]]
+
+  if (reverse) pal <- rev(pal)
+
+  colorRampPalette(pal, ...)
+}
+
+#' Color scale constructor for corpo colors
+
+# "palette" - Character name of palette in corpo_palettes
+# "discrete" - Boolean indicating whether color aesthetic is discrete or not
+# "reverse" - Boolean indicating whether the palette should be reversed
+# "..." - Additional arguments passed to discrete_scale() or
+# scale_color_gradientn(), used respectively when discrete is TRUE or FALSE
+
+scale_color_corpo <- function(palette = "main", discrete = TRUE, reverse = FALSE, ...) {
+  pal <- corpo_pal(palette = palette, reverse = reverse)
+  if (discrete) {
+    discrete_scale("colour", paste0("corpo_", palette), palette = pal, ...)
+  } else {
+    scale_color_gradientn(colours = pal(256), ...)
+  }
+}
+
+# Fill scale constructor for corpo colors
+
+# "palette" - Character name of palette in drsimonj_palettes
+# "discrete" - Boolean indicating whether color aesthetic is discrete or not
+# "reverse" - Boolean indicating whether the palette should be reversed
+# "..." - Additional arguments passed to discrete_scale() or
+# scale_fill_gradientn(), used respectively when discrete is TRUE or FALSE
+
+scale_fill_corpo <- function(palette = "main", discrete = TRUE, reverse = FALSE, ...) {
+  pal <- corpo_pal(palette = palette, reverse = reverse)
+
+  if (discrete) {
+    discrete_scale("fill", paste0("corpo_", palette), palette = pal, ...)
+  } else {
+    scale_fill_gradientn(colours = pal(256), ...)
+  }
+}
+
+```
+
+
+```{r}
+
+# Function that creates histograms.
+
+histogram.plot <- function(df, feat, title, x_label, bw = 1, breaks = NULL, limits = NULL){
+
+  z <- ggplot(df, aes(x=df[[feat]], fill = ..count..))
+  h.plot <- z + geom_histogram(aes(y = (..count..)/sum(..count..)), binwidth = bw, color = 'white', show.legend = FALSE) + 
+  labs(title = title) + xlab(x_label) + ylab("Percent of Clients") +                                            scale_x_continuous(breaks = breaks, limits = limits) + 
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_gradient(low = corpo_cols("dark grey"), high = corpo_cols("blue")) +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.x = element_text(margin = ggplot2::margin(t = 15, r = 0, b = 0, l = 0)),
+        axis.title.y = element_text(margin = ggplot2::margin(t = 0, r = 15, b = 0, l = 0)))
+  h.plot
+  
+}
+
+# Function that creates vertical barplots.
+
+vertical.barplot <- function(df, feat, title, x_label){
+
+  z = ggplot(df, aes(x = df[[feat]])) 
+  h.plot = z + geom_bar(aes(y = (..count..)/sum(..count..), fill = factor(..x..)), stat =                      "count") + 
+               labs(title = title) + xlab(x_label) + ylab("Percent of Clients") +
+               geom_text(aes(label = ..count.., y= (..count..)/sum(..count..)), stat= "count",                           vjust = -0.5, size=3) +                                                                 scale_y_continuous(labels=percent) + guides(fill=FALSE) + 
+               scale_fill_corpo(palette = "mixed", guide = "none") +
+               theme(plot.title = element_text(hjust = 0.5),
+                     axis.title.x = element_text(margin = ggplot2::margin(t = 15, r = 0, b = 0, 
+                                                                          l = 0)),
+                     axis.title.y = element_text(margin = ggplot2::margin(t = 0, r = 15, b = 0, 
+                                                                          l = 0)))
+  return(h.plot)
+
+}
+
+# Function that create horizontal barplots.
+
+horizontal.barplot <- function(df, feat, title, y_label){
+
+  z = ggplot(df, aes(x = df[[feat]])) 
+  h.plot = z + geom_bar(aes(y = (..count..)/sum(..count..), fill = factor(..x..)), stat =                      "count") + 
+               labs(title = title) + xlab(y_label) + ylab("Percent of Clients") +
+               geom_text(aes(label = ..count.., y= (..count..)/sum(..count..)), stat= "count",                          hjust = -0.5, size=3) +
+              scale_y_continuous(labels=percent, oob = rescale_none, limits = c(0, 0.25)) + 
+              coord_flip() + 
+              guides(fill=FALSE) + 
+              scale_fill_corpo(palette = "mixed") +
+              theme(plot.title = element_text(hjust = 0.5),
+                    axis.title.x = element_text(margin = ggplot2::margin(t = 15, r = 0, b = 0, 
+                                                                         l = 0)),
+                    axis.title.y = element_text(margin = ggplot2::margin(t = 0, r = 15, b = 0, 
+                                                                         l = 0)))
+  return(h.plot)
+
+}
+```
+
+
+```{r}
+# Histogram of 'age'
+age.plot <- histogram.plot(train, "age", title = "Distribution of Client Ages", x_label = "Age", breaks = seq(0,100,10), bw = 2) 
+age.plot
+```
+
+It seems like most of our potential clients are between the ages of 30 and 60 with a majority between 30 and 40. Persons in their 20's and past their 60's compose the minority of our clients. It is clear that the age distribution of the clients is mostly skewed to the right.
+
+```{r}
+# Barplot of 'job'
+job.plot <- horizontal.barplot(train, "job", "Distribution of Client Employment Data", "Job Title")
+job.plot
+```
+
+According to the graph above, a majority of the clients that are contacted hold either blue-collar, management, or technician positions. These jobs make up about 21%, 20.5%, and 17%, respectively, of all our clients in this dataset. Of note is the fact that this information is missing from only ~0.25% of our clients. This provides us with additional confidence in the inferences we make about the types of jobs that our clients have.
+
+```{r}
+# Barplot of 'marital'
+marital.plot <- vertical.barplot(train, "marital", "Distribution of Client Marital Status", "Marital Status")
+marital.plot
+```
+
+Here, we see that 60%, the majority, of the clients in our dataset are married.
+
+```{r}
+# Barplot of 'education'
+education.plot <- vertical.barplot(train, "education", "Distribution of Highest Education Completed by Client", "Education")
+education.plot
+```
+
+Above, we see that most of our clients seem to have, at most, completed secondary or tertiary education. In the Portuguese educational system, these roughly equate to completing high school and college/vocational program, respectively. This tells us that most of our clients are adequately educated and relatively skilled. In addition, we are missing this information from only ~5% of our clients.
+
+```{r}
+# Barplot of 'default'
+default.plot <- vertical.barplot(train, "default", "Distribution of Credit Defaults Among Clients", "Does Client Have Credit In Default?")
+default.plot
+```
+
+A vast majority, nearly 100%, of the clients that are contacted have not defaulted on a debt before. This seems like great news but begs the question of whether these individuals have never defaulted because they have successfully repaid all of their loans, or if they never took out a loan and, as a result, were never given the chance to default in the first place.
+
+```{r, message = FALSE, warning = FALSE}
+# Histogram of 'balance'
+
+balance.plot <- histogram.plot(train, "balance", title = "Distribution of Average Yearly Balance in Euros", x_label = "Balance", bw = 1000, breaks = seq(0,15000,1000), limits = c(-500,15000)) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+balance.plot
+```
+
+The graph above shows us the average yearly balance held by the clients in euros. It seems like over 50% of clients have less than 1,000 euros in savings deposited in their bank accounts and over 75% have less than 2,000. This may signal several things to us as employees of the bank. This may be concerning as a lack of savings may signal a poor financial status and/or an incapability of the client to manage their finances. This may correlate with an increased chance of defaulting on debt and borrowed loans. On the other hand, this may be fortunate, for us, as we may use the fact that individuals are not saving their money as a sales tactic to convince individuals to begin saving now and to do so with our bank.
+
+Being from the United States, our perception of how much money is needed to live comfortably is biased and the cost of daily living in Portugal should be taken into account before concluding the financial status of a client based on their average yearly balance. To provide some perspective, the average yearly salary of an individual in Lisbon, Portugal is around 10,000 euros a year. 
+
+```{r}
+# Barplot of 'housing'
+
+housing.plot <- vertical.barplot(train, "housing", "Distribution of Presence of Housing Loans Among Clients", "Does Client Possess Housing Loan?")
+housing.plot
+```
+
+The graph above shows us that over 55% of clients currently possess a housing loan; in other words, a mortgage. Our bank's sales team may use this information to their advantage, highlighting any attractive refinancing option the bank may have for new subscribers.
+
+```{r}
+# Barplot of 'loan'
+
+loan.plot <- vertical.barplot(train, "loan", "Distribution of Presence of Personal Loans Among Clients", "Does Client Possess Personal Loan?")
+loan.plot
+```
+
+Over 80% of clients are not currently paying off a personal loan.
+
+```{r}
+# Barplot of 'contact'
+
+contact.plot <- vertical.barplot(train, "contact", "Distribution of Communication Type Among Clients", "How Was Client Reached?")
+contact.plot
+```
+
+We see that over 60% of our clients were reached via cellphone. Meanwhile, we are missing this information from 30% of our respondents. Based on the times we live in today, few individuals in the developed world maintain a land line as their primary form of communication. It would not be unreasonable to believe that most of the 'unknown' observations are in fact 'cellular'. For a definitive conclusion to be made, additional data would need to be collected and, perhaps, changes in management would need to be made to ensure that sales representatives are determining the primary communication type of the clients.
+
+```{r}
+# Histogram of 'day'
+
+day.plot <- histogram.plot(train, "day", title = "Days on Which Clients Were Reached", x_label = "Day of Month", breaks = seq(0,31,5))
+day.plot
+```
+
+There seems to be no pattern as to the day of the month that clients are being reached. The graph above points to a largely uniform distribution of the days of the month on which clients are reached.
+
+```{r}
+# Barplot of 'month'
+
+train$month <- factor(train$month, levels=c("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"))
+
+month.plot <- vertical.barplot(train, "month", title = "Months on Which Clients Were Reached", x_label = "Day of Month")
+month.plot
+```
+
+In contrast to the days of the month, clients seem to be more willing/able to speak to bank representatives during the summer months with a peak during May. More data should be collected to confirm that the pattern we see here is not a statistical anomaly because there is no obvious explanation as to why individuals would be more willing/able to be reached by a representative during May, specifically. It may be that the change in seasons produces psychological/emotional/social changes that lead to an increase in client response. Or, it may be that the bank primarily conducts its large scale campaigns during May leading to an increase in client contacts. 
+
+```{r, message = FALSE, warning = FALSE}
+# Histogram of 'duration'
+
+duration.plot <- histogram.plot(train, "duration", title = "Distribution of Contact Time With Clients", x_label = "Duration of Contact (seconds)", bw = 100, limits = c(0,2500), breaks = seq(0,2500,100)) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+duration.plot
+```
+
+Above, we see that over 30% of communications with clients last less than 1.6 minutes and over 70% of communication last less than 5 minutes. It would be interesting to see what the distribution of duration times looks like for only those clients that ended up subscribing to the bank. This would provide additional insight into the effectiveness of the bank's sales tactics.
+
+```{r, message = FALSE, warning = FALSE}
+# Histogram of 'duration' (y = 'yes')
+
+duration.plot <- histogram.plot(train[train$y == 'yes',], "duration", title = "Distribution of Contact Time With with Eventual Subscribers", x_label = "Duration of Contact (seconds)", bw = 100, limits = c(0,2500), breaks = seq(0,2500,100)) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+duration.plot
+```
+
+Now, this is interesting. It seems like a majority of the subscribers acquired by the bank result from communications that last 1.6 - 3.3 minutes Almost a third of the subscribers are involved in communications lasting 3.3 - 5 minutes. It would be wise to closely analyze these client calls to determine the tactics used by the sales representative to sell the bank's subscription to the client. Although, it is important to note that the other 2/3 of acquired subscribers exhibit largely distributed duration of contact times. It may be that those individuals that subscribed within the first 3 minutes of contact were already interested in joining a bank. Nonetheless, these are interesting results. 
+
+```{r, message = FALSE, warning = FALSE}
+# Histogram of 'campaign'
+
+campaign.plot <- histogram.plot(train, "campaign", title = "Number of Times Client Was Contacted", x_label = "Number of Contacts", bw = 1, limits = c(0,20), breaks = seq(0,20,4))
+campaign.plot
+```
+
+```{r, message = FALSE, warning = FALSE, echo=FALSE}
+# Histogram of 'campaign' (y = 'yes')
+
+campaign.plot <- histogram.plot(train[train$y == 'yes',], "campaign", title = "Number of Times Subscriber Was Contacted", x_label = "Number of Contacts", bw = 1, limits = c(0,20), breaks = seq(0,20,4))
+campaign.plot
+```
+
+A majority of the clients are contacted only once and nearly 80% are contacted 3 times or less. Above, in the second graph, we see the same graph but for only those clients that became subscribers. It seems like persistence has some influence in the choice of a client to buy a subscription. With this information, the bank may consider allocating time spent reestablishing contact to contacting new clients.
+
+```{r, message = FALSE, warning = FALSE}
+# Histogram of 'pdays'
+
+pdays.plot <- histogram.plot(train, "pdays", title = "Number of Days After Previous Campaign Client Was Contacted", x_label = "Number of Days", bw = 10, limits = c(-10,500), breaks = seq(0,500,100))
+pdays.plot
+```
+
+Here, we discover over 80% of our data points are missing for the pdays feature. Because we have so little information on this feature, it is likely that we will remove this feature from the dataset at some point during the analysis. 
+
+```{r, message = FALSE, warning = FALSE}
+# Histogram of 'previous'
+
+previous.plot <- histogram.plot(train, "previous", title = "Number of Times Client was Contacted Before Current Campaign", x_label = "Number of Times", bw = 1, limits = c(-1,10), breaks = seq(0,10,1)) 
+previous.plot
+```
+
+```{r, message = FALSE, warning = FALSE, echo=FALSE}
+# Histogram of 'previous' (subscribers only)
+
+previous.plot <- histogram.plot(train[train$y == 'yes',], "previous", title = "Number of Times Subscriber was Contacted Before Current Campaign", x_label = "Number of Times", bw = 1, limits = c(-1,10), breaks = seq(0,10,1)) 
+previous.plot
+```
+
+It looks like, during the campaign, most of the clients are new. Similarly, most of the subscribers obtained during the campaign have not been contacted before. 85% of subscribers have been contacted twice or less before the current campaign. It seems like if a client has not subscribed in the past 3 campaigns, including the current one, they are more likely to not subscribe during consecutive campaigns. Although, we must keep in mind that our data is biased towards new clients. It might be that most subscribers have only been contacted once because most of the clients are new. Still, our conclusion may be sound due to the steady decrease in the percentage of clients that subscribe as a function of increasing number of contacts before the current campaign.
+
+```{r}
+# Barplot of 'poutcome'
+poutcome.plot <- vertical.barplot(train, "poutcome", "Outcome of Previous Marketing Campaign", "Result of Previous Campaign on Client")
+poutcome.plot
+```
+
+It seems like it is unclear, for over 80% of clients, as to whether or not the previous marketing campaign was successful or not. This make sense as most clients are not contacted more than once. This may be one feature that we will end up eventually leaving out from from our model for lack of additional, useful information.
+
+```{r}
+# Barplot of 'y'
+y.plot <- vertical.barplot(train, "y", "Outcome of Latest Marketing Campaign on Client", "Did the Client Subscribe?")
+y.plot
+```
+
+It looks like a large majority of the time, the outcome variable produces a "no". In other words, over 80% of clients failed to subscribe to the bank during the current campaign. Exactly how much of our data is made up of "no"s?
+
+```{r}
+perc.no <- nrow(train[train$y == 'no',])/nrow(train)*100
+print(paste0(as.character(round(perc.no)), "%"))
+```
+
+88% of the time, the response variable comes up as "no". Clearly, our dependent variable is very biased towards "no". This means that our measure for the performance of our final model will need to be relatively high in order to bear any fruit in real world applications. Suppose we introduced a model that only predicted "no" for all observation in the data set, then, we would obtain an accuracy of 88%. This may seem like a well performing model when in fact it is practically useless, providing the same prediction every time. We will need to take this into account when analyzing the models that we create by analyzing metrics such as specificity and sensitivity along with the accuracy. 
+
+Based on the analysis of the data so far, the dependent variable that is being predicted is categorical; 'yes' or 'no'. Due to this fact, the end product of this project will be a classification model. We can use the same tatic, of predicting 'no' for all observations, as an initial benchmark against which we will compare other potential models for the prediction of whether or not a client will subscribe to the bank.
+
+
+
+# Model Selection 
+
+We have completed an exploration of the dataset, looking at each feature individually as well as the dataset as a whole. Now, it is time to begin building the model that will allow us to predict which clients are likely to subscribe to our bank.
+
+Let us not forget that our dependent variable here is binary; "yes" or "no". This constitutes as a classification problem which narrows down the possibility of our potential models. Often, we want, and need, to consider the amount of investment in terms of time and resources that building a model will require. In addition, it is best to begin with a simple model because they are quick and easy to build.
+
+Upon closer inspection of the data, there are several numeric variables, such as day, that should be treated as categorical variables. This is because these values are discrete which function primarily as labels. We'll convert the appropriate numeric columns into categorical ones. This prevents the model from producing inaccurate relationships between the features and the dependent variable. Specifically, "day", "campaign", and "previous" will be turned into factor variables.
+
+In addition, it was concluded that "pdays", because it is missing over 80% of its data, should not be included in the model. And so, it will be removed. "poutcome" will also be excluded because it too is missing ~80% of its data and seems to provide no additional information that will add to the prediction capabilities of the model. "poutcome" describes whether a campaign was successful in gaining a certain subscriber or not. A large majority of our clients are persons who have never been contacted before which leads to 80% of the data being missing. If a campaign was successful, then there is no reason to re-establish contact and certain clients were labeled as "other". It is unclear how a campaign had done anything else than either succeeded or failed in obtaining a client. This feature is largely designed for exploratory analysis and, as a result, will be excluded from the model.
+
+```{r}
+train.new <- train[ , !(names(train) %in% c("pdays", "poutcome"))]
+test.new <- test[ , !(names(test) %in% c("pdays", "poutcome"))]
+
+train.new[c("day", "campaign", "previous")] <- lapply(train.new[c("day", "campaign", "previous")], factor)
+test.new[c("day", "campaign", "previous")] <- lapply(test.new[c("day", "campaign", "previous")], factor)
+print("Train Columns:")
+sapply(train.new, class)
+print("Test Columns:")
+sapply(test.new, class)
+```
+
+Let's perform a train-test split on our training data. This will simulate the prediction of previously unforeseen data and allow us to measure the performance of our model along the way. 
+
+```{r}
+set.seed(2018)
+
+split <- sample.split(train.new$y, SplitRatio = 0.8)
+train.train <- subset(train.new, split == TRUE)
+train.test <- subset(train.new, split == FALSE)
+```
+
+Not all of the models are guaranteed to be able to handle categorical variables directly in their raw form; so, let us code each categorical feature in our dataset into dummy variables. Also, some models, such as support vector machines, require the data to be normalized across all of the features; for this reason, we will create a separate, normalized training set as well.
+
+```{r}
+# Normalizing data
+
+# A function that normalizes numeric data
+data_norm <- function(x){return((x - min(x))/(max(x) - min(x)))}
+
+train.train.norm <- train.train
+train.test.norm <- train.test
+
+for(col in colnames(train.train.norm)){
+  if(is.numeric(train.train.norm[[col]])){
+    train.train.norm[[col]] <- data_norm(train.train.norm[[col]])
+  }
+}
+
+for(col in colnames(train.test.norm)){
+  if(is.numeric(train.test.norm[[col]])){
+    train.test.norm[[col]] <- data_norm(train.test.norm[[col]])
+  }
+}
+```
+
+```{r}
+# Codifying categorical variables
+
+train.train.new <- data.frame(model.matrix(y ~ .-1, data = train.train.norm))
+train.train.new <- cbind(train.train[["y"]], train.train.new)
+colnames(train.train.new)[1] <- c("y")
+
+train.test.new <- data.frame(model.matrix(y ~ .-1, data = train.test.norm))
+train.test.new <- cbind(train.test[["y"]], train.test.new)
+colnames(train.test.new)[1] <- c("y")
+```
+
+```{r}
+# Changing the train funciton to use cross-validation
+
+train_control <- trainControl(method = "repeatedcv", number = 5, repeats = 3, 
+                      classProbs = TRUE, summaryFunction = twoClassSummary, 
+                      savePredictions = TRUE, verboseIter = TRUE)
+```
+
+Four different models will be fit to determine their performance in predicting whether or not a client will subscribe to the bank: Logistic Regression, Support Vector Machine (SVM), Random Forest, and K-Nearest Neighbors (KNN).
+
+## Logistic Regression
+
+```{r, message = FALSE, warning = FALSE}
+start_time <- Sys.time()
+
+set.seed(2018)
+
+# Making the model
+lr.model <- caret::train(y ~., data=train.train.new, trControl=train_control, method="glm", family = "binomial", metric = "ROC", tuneLength = 1)
+pred1 = predict(lr.model, newdata=train.test.new)
+
+end_time <- Sys.time()
+time.elapse <- (end_time - start_time)
+print(time.elapse)
+```
+
+```{r}
+# Printing the overall accuracy of the model
+lr.model$results  
+
+cat("", sep = "\n")
+
+# Printing specificity and sensitivity
+cm1 <- confusionMatrix(data=pred1, train.test$y)
+print(cm1)
+
+```
+
+## Support Vector Machine
+
+```{r}
+start_time <- Sys.time()
+
+set.seed(2018)
+
+# Making the model
+svm.model <- caret::train(y ~., data=train.train.new, trControl=train_control, method="svmLinear", metric = "ROC", tuneLength = 1)
+pred2 = predict(svm.model, newdata=train.test.new)
+
+end_time <- Sys.time()
+time.elapse <- (end_time - start_time)
+print(time.elapse)
+```
+
+```{r}
+# Printing the overall accuracy of the model
+svm.model$results
+
+cat("", sep = "\n")
+
+# Printing specificity and sensitivity
+cm2 <- confusionMatrix(data=pred2, train.test$y)
+print(cm2)
+```
+
+## Random Forest
+
+```{r}
+start_time <- Sys.time()
+
+set.seed(2018)
+
+# Making the model
+
+rf.model <- randomForest(y~., data = train.train)
+
+# Predicting test set results:
+
+pred3 <- predict(rf.model, newdata = train.test[, !(colnames(train.test) %in% c("y"))])
+
+end_time <- Sys.time()
+time.elapse <- (end_time - start_time)
+print(time.elapse)
+```
+
+```{r}
+
+# Evaluating model accuracy:
+
+acc <- paste0(round(1 - mean(rf.model$err.rate[,"OOB"]),2) * 100, "%")
+print(paste("Overall Accuracy = ",acc)) 
+
+cat("", sep = "\n")
+
+cm3 <- confusionMatrix(pred3, train.test$y) 
+print(cm3)
+```
+
+Attempts to train the random forest model in conjunction with cross-validation proved unsuccessful requiring an excessive amount of time to run. It required so much time, in fact, that it was unable to complete training in any reasonable amount of time. Luckily, during the process of training, the random forest samples a subset of the observations to build any single tree in the forest. This leads to many decision trees being made with "different" datasets. The final predictions, for classification problems, are made by a majority vote of all the decision trees; essentially giving an average prediction of all the trees and, as a result, will provide an average accuracy of the model's performance. In this way, random forests are said to provide "free cross-validation". 
+
+### KNN
+
+```{r}
+start_time <- Sys.time()
+
+set.seed(2018)
+
+# Making the model
+
+knn.model <- caret::train(y ~., data=train.train.new, method="knn", trControl=train_control, tuneLength = 1)
+
+# Predicting test set results:
+
+pred4 = predict(knn.model, newdata=train.test.new[, !(colnames(train.test.new) %in% c("y"))])
+
+end_time <- Sys.time()
+time.elapse <- (end_time - start_time)
+print(time.elapse)
+```
+
+```{r}
+knn.model$results
+
+cat("", sep = "\n")
+
+# Printing specificity and sensitivity
+cm4 <- confusionMatrix(data=pred4, train.test.new$y)
+print(cm4)
+```
+
+## Model Selection Conclusions
+
+As of now, Logistic Regression, Support Vector Machine, Random Forest, and K-Nearest Neighbors all seem to be equally as accurate possessing overall accuracies of ~89%. Let's create a benchmark, similar to the one we made during our exploratory analysis, in which we determine our accuracy if our model were to simply predict a single value for all observations.
+
+```{r}
+table(train.test$y)
+
+(5595/(5592+737)) * 100
+```
+
+Once again, we obtain an 88% accuracy simply by predicting "no" for all clients. So, we see that our models do no better with accuracies of 88-90%. Still, they do no worse. It is likely, in addition, that hyperparameter tuning and feature optimization will allow us to increase our accuracy despite any model's current performance. Of note here is that, no matter which of the three we choose, all of the models have very high sensitivities in comparison to their specificities. Our high sensitivity tells us that a greater proportion of the "no"s are correctly predicted which leads to a trade-off in the proportion of "yes"s correctly predicted. It may be desirable to tweak the model specifically so that a greater percentage of the subscribing clients are captured at the cost of wrongly predicting that other clients will subscribe when, in reality, they will not. The bank is already spending large amounts of resources indiscriminately contacting potential clients, a large majority of which will not subscribe anyway. By making sure that we capture all those clients who do subscribe we at least offset the losses procured in the process.  
+
+Interestingly enough, despite identical overall accuracies, the Logistic Regression, SVM, Random Forest, and KNN vary widely in their specificities being 20%, 16%, 50%, and 10% respectively. Now, this is exciting because we have found a key way in which the models differ, and in an important way too. We see that the random forest outperforms the other models in predicting a future subscriber will in fact subscribe to the bank. As mentioned previously, this is desirable because it is more important to us to capture those individuals that will eventually subscribe rather than those who will not. For this reason, we will select the random forest as the model that we will continue with and improve upon throughout the rest of our analysis of the bank marketing data.
+
+One may wonder why the base package was used to fit the random forest while 'caret' was used to fit the remaining models. The main reason that the caret package is used at all is to perform cross validation during training of the models and to produce confusion matrices. In additon, it seems like the train function of caret performs behind-the-scenes optimizations and enforces its own parameter values. Due to the bagging feature of the random forest, it basically provides us with a "free" cross-validated model removing the need for manual cross-validation. As a byproduct, by not training the random forest using the train function, we retain greater freedom during parameter tuning becasuse the base model fit function allows for specific assignmnet of more parameters of the random forest than does the caret train function. Finally, the random forest model trains faster using the base package because there is no additional over-head resulting from background optomization processes.
+
+
+
+# Model Tuning/Optomization
+
+We have determined that the ranfom forest returned the most favorable performance with an 88% overall accuracy and the ability to capture ~50% of the positive cases in our data. As a result, this model was deemed the best and selected, of the four base models that were fit, for continued use and improvement. 
+
+In this section, we will continue working on our final model by imporving the random forest model. Improvement in the performance of a model can be achieved via three main avenues:
+
+1. Model Boosting
+2. Feature Optimization
+3. Hyperparameter Tuning
+
+## Model Boosting
+
+The random forest, by default, is itself an ensemble model. It is an amalgamation of decision tree models which utilize 'bagging' to produce an accuracy superior to that of any single decision tree. During bagging, each tree is trained using a new, random sample of the training data and the final predictions of all the end trees are averaged, in the regression case, or tallied, in classification case, to determine the most prevalent prediction. In this way, the random forest improves upon the performance of the decision tree by slightly increasing bias while greatly decreasing variance. Although, there is another way the model can average the predictions of all the deision trees in a forest; by introducing weights. This is called 'boosting'.
+
+The process of boosting mirrors that of bagging but with the extra addition of weights. During boosting, each decision tree is also fit using randomly sampled from the training data. At first, each data point is selected with equal probability but as each successive tree is trained, the probability of a data point being selected for a sample changes based on whether it belongs to a class that the previous tree had difficulty predicting or not. The points belonging to the class, which the previous decision tree had the most difficulty predicting, will have higher probabilities of being chosen for the sample on which the next decision tree will be trained. In this way, a boosted random forest seeks to decrease bias while slightly increasing variance. 
+
+Here,  we will use the XGBoost package which is specifically designed to produce a boosted random forest called the XGBoost model.
+
+```{r, message=FALSE, warning=FALSE}
+
+# Preparing data for the XGBoost model; finding the best parameters for the XGBoost model
+
+# Coding the dependent varaible 0/1
+train.train.new$y <- as.numeric(train.train.new$y)
+train.train.new$y <- (train.train.new$y - 1)
+train.test.new$y <- as.numeric(train.test.new$y)
+train.test.new$y <- (train.test.new$y - 1)
+
+x.train.val = data.matrix(train.train.new[, !(colnames(train.train.new) %in% c("y"))])
+y.train.val = data.matrix(train.train.new$y)
+x.test.val = data.matrix(train.test.new[, !(colnames(train.test.new) %in% c("y"))])
+y.test.val = data.matrix(train.test.new$y)
+
+xgb.train <- xgb.DMatrix(data = x.train.val, label = y.train.val)
+xgb.test <- xgb.DMatrix(data = x.test.val, label = y.test.val)
+
+xgb.params <- list(booster = "gbtree", objective = "binary:logistic", eta=0.3, gamma=0, max_depth=6, min_child_weight=1, subsample=1, colsample_bytree=1, eval_metric = "error")
+
+xgbcv <- xgb.cv(params = xgb.params, data = xgb.train, nrounds = 200, nfold = 5, showsd = T, stratified = T, print_every_n = 50, early.stop.round = 20, maximize = F)
+
+xgbcv$best_iteration
+```
+
+```{r}
+# Building the XGBoost model
+
+#first default - model training
+xgb1 <- xgb.train(params = xgb.params, data = xgb.train, nrounds = 53, watchlist = list(val=xgb.test,train=xgb.train))
+
+#model prediction
+xgbpred <- predict (xgb1,xgb.test)
+xgbpred <- ifelse (xgbpred > 0.5,1,0)
+
+xgbpred <- as.factor(xgbpred)
+y.test.val <- as.factor(y.test.val)
+
+confusionMatrix (xgbpred, y.test.val)
+```
+
+Thus far, the boosted model possesses an accuracy similar to our base random forest but a specificity that is way below that of the base random forest. 28% compared to our original 50%. Let's see if optomizing the parameters increases the boosted model's performance at all.
+
+```{r}
+# Optomizing XGBoost
+
+train.train.new$y <- as.factor(train.train.new$y)
+train.test.new$y <- as.factor(train.test.new$y)
+
+#create tasks
+traintask <- makeClassifTask (data = data.frame(train.train.new), target = "y")
+testtask <- makeClassifTask (data = data.frame(train.test.new), target = "y")
+
+#create learner
+lrn <- makeLearner("classif.xgboost",predict.type = "response")
+lrn$par.vals <- list( objective="binary:logistic", eval_metric="error", nrounds=100L, eta=0.1)
+
+#set parameter space
+params <- makeParamSet( makeDiscreteParam("booster",values = c("gbtree","gblinear")), makeIntegerParam("max_depth",lower = 3L,upper = 10L), makeNumericParam("min_child_weight",lower = 1L,upper = 10L), makeNumericParam("subsample",lower = 0.5,upper = 1), makeNumericParam("colsample_bytree",lower = 0.5,upper = 1))
+
+#set resampling strategy
+rdesc <- makeResampleDesc("CV",stratify = T,iters=5L)
+
+#search strategy
+ctrl <- makeTuneControlRandom(maxit = 10L)
+
+#set parallel backend
+library(parallel)
+library(parallelMap) 
+parallelStartSocket(cpus = detectCores())
+
+#parameter tuning
+mytune <- tuneParams(learner = lrn, task = traintask, resampling = rdesc, measures = mlr::acc, par.set = params, control = ctrl, show.info = T)
+mytune$y 
+```
+
+Now to refit the model using the optomized parameters.
+
+```{r}
+# Set hyperparameters
+lrn_tune <- setHyperPars(lrn, par.vals = mytune$x)
+
+# Train model
+xgb.opt <- train(learner = lrn_tune, task = traintask)
+
+# Predict model
+xgpred.opt <- predict(xgb.opt, testtask)
+
+# Assess performance
+confusionMatrix(xgpred.opt$data$response, xgpred.opt$data$truth)
+```
+
+It doesn't seem as if a boosted random forest model will help us achieve a greater acuracy in predicting whether or not a client will subscribe to our bank. Our original random forest also achieved a 89% accuracy but was able to capture 50% of the subscribers as oppose to the optomized XGBoost model which only captures 27% of the same subscribers. For this reason, we will stick with our base random forest with bagging for the rest of the project.
+
+
+## Feature Optimization
+
+A popular process by which a data scientist may increase the performance of their model is feature engineering. In this way, the engineer uses the features already at his or her disposal to create new ones that may improve the performance of the model. The engineer may also try to find additional features relating to the observations in the data that have not yet been accounted for. In this way, the engineer can increase the amount of variance in the data that can be explained by the model, further improving model performance.
+
+It is no secret that industrial and consumer behavior can be predicted and determined by certain economic indicators. Such indicators are used to make generalized diagnoses about the state of an economy which can have sweeping implications that affect the general population of a country. Such indicators are also included in this dataset. These additional features include macroeconomic indicators such as net disposable income, interst rates, inflation rates, and unemployment rates all specific to the country of Portugal and the time frames, May 2008 to November 2010, in which each observation in the dataset was recorded. All economic data was gathered from https://tradingeconomics.com and conjoined with the original data in Microsoft Excel. Let's read in these new features and join them to our existing dataset.
+
+The main goal of this project is to role play as if we are a team of data analysists/data scientists tasked with creating a model using the train and test data we have been given. When training a model, one is able to increase the amount of data available for training in countless ways. Although, this project is done under the assumption that the bank has collected only a set number of features to work with for the test set. For this reason, the final model will only use the original set of features that are included in the test set. Although, a second model, using the dataset that includes the new features, will be built alongside the original one in order to highlight how much a model can improve when given additional, quality data to train on. 
+
+```{r}
+# Reading in the expanded bank data
+
+bank_additional <- read.xlsx('new_bank_data.xlsx', na.strings=c("","NA"))
+
+# Make characters in data to factors (since they are currently characters)
+
+fact1 <- c("job", "marital", "education", "default","housing","loan","contact","month","y", "poutcome")
+
+bank_additional[fact1]<-lapply(bank_additional[fact1], factor)
+bank_additional<-as.data.frame(bank_additional)
+
+fact2 <- c("age", "balance", "duration", "pdays", "day", "campaign", "previous")
+
+bank_additional[fact2]<-lapply(bank_additional[fact2], as.integer)
+bank_additional<-as.data.frame(bank_additional)
+
+#use the dplyr library to help us join the tables together
+
+train.newfeat <- inner_join(train, bank_additional)
+
+head(train.newfeat)
+```
+
+Much of the economic data added seem to mimic noise and may not contribute to the accuracy of the model. This is likely because the time scale, of our original data, is not spread out enough, so the short-term, volatile behavior of the Portuguese economy dominates the data where as a longer time frame may have a more pronounced, structured pattern to it. For example, nearly one-third of the data originates from may 2008 to august 2008, so any indicators would be biased toward this majority. Nevertheless, we will see how the random forest behaves with this data.  
+
+```{r}
+# Removing unecessary columns
+
+train.newfeat <- train.newfeat[ , !(names(train.newfeat) %in% c("pdays", "poutcome"))]
+
+# Changing certian numeric columns to factor columns
+
+train.newfeat[c("day", "month", "campaign", "previous")] <- lapply(train.newfeat[c("day",  "month", "campaign", "previous")], factor)
+
+# Train-test split for the train data with new features
+
+set.seed(2018)
+
+split <- sample.split(train.newfeat$y, SplitRatio = 0.8)
+train.train.nf <- subset(train.newfeat, split == FALSE)
+train.test.nf <- subset(train.newfeat, split == TRUE)
+
+# Test x and y for original features
+
+x.train.test <- train.test[, !(colnames(train.test) %in% c("y"))]
+y.train.test <- train.test$y
+
+# Test x and y for new features
+
+x.train.test.nf <- train.test.nf[, !(colnames(train.test.nf) %in% c("y"))]
+y.train.test.nf <- train.test.nf$y
+
+# Test x for final test set 
+
+x.test = test.new[, !(colnames(test.new) %in% c("y","id"))]
+```
+
+Now, let's assess the base performance of both our random forests.
+
+```{r, message=FALSE, warning=FALSE}
+# Fitting the individual models
+
+set.seed(2018)
+
+# Random Forest (Original Features)
+
+rf <- randomForest(y~., data = train.train)
+pred.rf <- predict(rf, newdata = x.train.test)
+cm.rf = confusionMatrix(pred.rf, y.train.test)
+
+set.seed(2018)
+
+# Random Forest (New Features)
+
+rf.nf <- randomForest(y~., data = train.train.nf)
+pred.rf.nf <- predict(rf.nf, newdata = x.train.test.nf)
+cm.rf.nf <- confusionMatrix(pred.rf.nf, y.train.test.nf)
+
+print("Random Forest (Original Features)")
+rf
+cm.rf
+print("Random Forest (New Features)")
+rf.nf
+cm.rf.nf
+```
+
+It looks like the the model utilizing the dataset with the new features performs better on the test set than the one without. Our original model performed possesses an out-of-bag (OOB) error rate of 9%, accuracy of 89% and specificity of 50%. Meanwhile, the model using the new features has an OOB error rate of 10%, accuracy of 90% and specificity of 55%. Although the model with the new features has a slightly higher OOB error rate, it captures 5% more of the positive cases in the test set while increasing the sensitivity and accuracy as well. The new features seem promising. 
+
+
+## Hyperparameter Tuning
+
+Now, let's determine the optimal parameter values for our random forests. 
+
+```{r}
+# Function that fits a random forest model using different parameter values and plots the change in accuracy
+
+rf.paramopt.plot <- function(dataset = NULL, xtest= NULL, ytest = NULL, param = NULL, range = NULL){
+  
+  paramopt.acc = c()
+  paramopt.specif = c()
+  
+  # ntree
+  if(param == "ntree"){
+    for(i in seq(1,length(range))){
+      
+      model = randomForest(y~., data = dataset, ntree = range[i])
+      prediction <- predict(model, newdata = xtest)
+      cm = confusionMatrix(prediction, ytest)
+      
+      paramopt.acc[i] <- as.numeric(cm$overall["Accuracy"])
+      paramopt.specif[i] <- as.numeric(cm$byClass["Specificity"])
+    }
+  }
+  
+  # mtry
+  if(param == "mtry"){
+    for(i in seq(1,length(range))){
+      
+      model = randomForest(y~., data = dataset, mtry = range[i])
+      prediction <- predict(model, newdata = xtest)
+      cm = confusionMatrix(prediction, ytest)
+      
+      paramopt.acc[i] <- as.numeric(cm$overall["Accuracy"])
+      paramopt.specif[i] <- as.numeric(cm$byClass["Specificity"])
+    }
+  }
+  
+  # nodesize
+  if(param == "nodesize"){
+    for(i in seq(1,length(range))){
+      
+      model = randomForest(y~., data = dataset, nodesize = range[i])
+      prediction <- predict(model, newdata = xtest)
+      cm = confusionMatrix(prediction, ytest)
+      
+      paramopt.acc[i] <- as.numeric(cm$overall["Accuracy"])
+      paramopt.specif[i] <- as.numeric(cm$byClass["Specificity"])
+    }
+  }
+  
+  plt.acc = plot(x = range, y = paramopt.acc, 
+            xlab = param,
+            ylab = "Accuracy", 
+            type="l",
+            col="blue")
+  points(x = range, y = paramopt.acc, col="blue", pch=19)
+  grid (NULL,NULL, lty = 6, col = "cornsilk2")
+  
+  plt.specif = plot(x = range, y = paramopt.specif,
+                    xlab = param,
+                    ylab = "Specificity", 
+                    type="l",
+                    col="blue")
+  points(x = range, y = paramopt.specif, col="blue", pch=19)
+  grid (NULL,NULL, lty = 6, col = "cornsilk2")
+
+}
+```
+
+### Parameter Optimization (original features)
+
+```{r}
+rf.paramopt.plot(dataset = train.train, xtest = x.train.test, ytest = y.train.test, param = "ntree", range = seq(100, 3000, 200))
+```
+
+An ntrees value of 2100 seems to maximize both the accuracy and specificity will keeping the ntrees to a minimum. We do not want to overtrain the model and we want to keep the amount of time needed to train the model to a minimum. 
+
+```{r}
+rf.paramopt.plot(dataset = train.train, xtest = x.train.test, ytest = y.train.test, param = "mtry", range = seq(1,10,1))
+```
+
+An mtry of 4 likewise seems to maximize both the accuracy and specificity will keeping the mtry to a minimum. 
+
+```{r}
+rf.paramopt.plot(dataset = train.train, xtest = x.train.test, ytest = y.train.test, param = "nodesize", range = seq(1,10,1))
+```
+
+Looks like a nodesize of anything other than 1 will only decrease specificity. for this reason, we will stick with 1 as our nodesize value.
+
+```{r}
+# Tuning 'cutoff'
+
+# Setting values for 'cutoff'
+
+paramopt.acc <- c()
+paramopt.specif <- c()
+
+k <- 0.50
+
+for(i in seq(1,10)){
+  
+  model = randomForest(y~., data = train.train, cutoff = c(k,1-k))
+  prediction <- predict(model, newdata = x.train.test)
+  cm = confusionMatrix(prediction, y.train.test)
+  
+  paramopt.acc[i] <- as.numeric(cm$overall["Accuracy"])
+  paramopt.specif[i] <- as.numeric(cm$byClass["Specificity"])
+  
+  k = k + 0.05
+}
+
+plt.acc = plot(x = seq(0.50, 0.95, 0.05), y = paramopt.acc, 
+            xlab = "cutoff",
+            ylab = "Accuracy", 
+            type="l",
+            col="blue")
+  points(x = seq(0.50, 0.95, 0.05), y = paramopt.acc, col="blue", pch=19)
+  grid (NULL,NULL, lty = 6, col = "cornsilk2")
+  
+  plt.specif = plot(x = seq(0.50, 0.95, 0.05), y = paramopt.specif,
+                    xlab = "cutoff",
+                    ylab = "Specificity", 
+                    type="l",
+                    col="blue")
+  points(x = seq(0.50, 0.95, 0.05), y = paramopt.specif, col="blue", pch=19)
+  grid (NULL,NULL, lty = 6, col = "cornsilk2")
+```
+
+It seems like a cutoff at (0.6, 0.4) does the best job of maximizing specificity while causing a minimal decrease in overall accuracy.
+
+### Parameter Optimization (new features added)
+
+Now, let's determine the optimal parameter values for our random forest using the dataset that includes our new features.
+
+```{r}
+rf.paramopt.plot(dataset = train.train.nf, xtest = x.train.test.nf, ytest = y.train.test.nf, param = "ntree", range = seq(100, 3000, 200))
+```
+
+Using the dataset with the new features, it seems like ntrees of 700 gives us the best accuracy and speificity. 
+
+```{r}
+rf.paramopt.plot(dataset = train.train.nf, xtest = x.train.test.nf, ytest = y.train.test.nf, param = "mtry", range = seq(3,15,3))
+```
+
+For this collection of features, mtry of 6 seems best. 
+
+```{r}
+rf.paramopt.plot(dataset = train.train.nf, xtest = x.train.test.nf, ytest = y.train.test.nf, param = "nodesize", range = seq(1,10,1))
+```
+
+Once again, changing nodesize to anything other than 1 dereases specificity. We will leave it at that.
+
+```{r}
+# Tuning 'cutoff'
+
+# Setting values for 'cutoff'
+
+paramopt.acc <- c()
+paramopt.specif <- c()
+
+k <- 0.50
+
+for(i in seq(1,10)){
+  
+  model = randomForest(y~., data = train.train.nf, cutoff = c(k,1-k))
+  prediction <- predict(model, newdata = x.train.test.nf)
+  cm = confusionMatrix(prediction, y.train.test.nf)
+  
+  paramopt.acc[i] <- as.numeric(cm$overall["Accuracy"])
+  paramopt.specif[i] <- as.numeric(cm$byClass["Specificity"])
+  
+  k = k + 0.05
+}
+
+plt.acc = plot(x = seq(0.50, 0.95, 0.05), y = paramopt.acc, 
+            xlab = "cutoff",
+            ylab = "Accuracy", 
+            type="l",
+            col="blue")
+  points(x = seq(0.50, 0.95, 0.05), y = paramopt.acc, col="blue", pch=19)
+  grid (NULL,NULL, lty = 6, col = "cornsilk2")
+  
+  plt.specif = plot(x = seq(0.50, 0.95, 0.05), y = paramopt.specif,
+                    xlab = "cutoff",
+                    ylab = "Specificity", 
+                    type="l",
+                    col="blue")
+  points(x = seq(0.50, 0.95, 0.05), y = paramopt.specif, col="blue", pch=19)
+  grid (NULL,NULL, lty = 6, col = "cornsilk2")
+  
+# Once again, a cutoff of (0.60,0.40) provide us with the best of both accuracy and specificity.
+```
+
+Based on the graph above, we will, once again, go with a cutoff of (0.6,0.4). Although it may be a conservative selection, such a cutoff will increase our specificity by ~20 percentage points while minimizing loss in accuracy.
+
+Now, let's compare model performance, using tuned parameters, with and without our new features
+
+```{r}
+# Assessing performance of base Random Forests (with optomized parameters)
+
+set.seed(2018)
+
+rf <- randomForest(y~., data = train.train, ntree = 2100, mtry = 4, nodesize = 1, cutoff = c(0.6,0.4))
+pred.rf <- predict(rf, newdata = x.train.test)
+cm.rf = confusionMatrix(pred.rf, y.train.test)
+
+set.seed(2018)
+
+rf.nf <- randomForest(y~., data = train.train.nf, ntree = 700, mtry = 6, nodesize = 1, cutoff = c(0.6,0.4))
+pred.rf.nf <- predict(rf.nf, newdata = x.train.test.nf)
+cm.rf.nf <- confusionMatrix(pred.rf.nf, y.train.test.nf)
+
+print("Random Forest (original features)")
+rf
+cm.rf
+print("Random Forest (new features)")
+rf.nf
+cm.rf.nf
+```
+
+Let's breakdown the main metrics we are concerned with for each model:
+
+Random Forest (original features)
+  OOB Error Rate - 10.29%
+  Test Set Accuracy -  88.96%
+  Test Set Specificity - 67.84%
+  
+Random Forest (new features)
+  OOB Error Rate - 11.12%
+  Test Set Accuracy - 89.53%
+  Test Set Specificity - 74.60%
+  
+Once again, the model using the the new features come out on top with a higher test acuracy and specificity.
+  
+Now, let's determine feature importances according to our models.
+
+```{r}
+# Original Features
+
+print("Original Features")
+rf.imp <- data.frame(rf$importance)
+rf.imp
+
+# New Features
+
+print("New Features")
+rf.nf.imp <- data.frame(rf.nf$importance)
+rf.nf.imp
+```
+
+'Mean Decrease in Gini' is a measure of variable importance for estimating a target variable. The higher this value is, the higher the variable importance is to the model.
+
+Based on our results, 'duration', 'day', and 'month' are the three most important features when using our data set devoid of any additional features. Meanwhile, when using the dataset with additional features, we see that the three most important features are 'duration', 'day', and 'job'. It is interesting that both of the datasets possess 'month' and 'job' but they possesses different importances. The additional features must be intereacting with the original ones in some way to cause this change. Nevertheless, it is clear, based on performance, that atleast a few of the new features increase the predictictability of the model.
+
+It should be noted that random forests actually perform a sort of implicit feature selection. For any decision tree in the forest, features are sampled from the dataset by how well they partition the training set into pure subsets. A decision tree then creates a list of steps for effectively partitioning the data in the quickest number of steps. So, the features highest up in the tree can be thought of as 'most important' as they are able to partion the most data points in the fewest steps.  
+
+Now, let's retrain the model on all our data and obtain a final prediction set to be evaluated by the professor.
+
+```{r}
+
+# Makeing sure the levels for each factor varaible of the test and train sets are the same
+
+x.test$job <- factor(x.test$job, levels=levels(train.new$job))
+x.test$marital <- factor(x.test$marital, levels=levels(train.new$marital))
+x.test$education <- factor(x.test$education, levels=levels(train.new$education))
+x.test$default <- factor(x.test$default, levels=levels(train.new$default))
+x.test$housing <- factor(x.test$housing, levels=levels(train.new$housing))
+x.test$loan <- factor(x.test$loan, levels=levels(train.new$loan))
+x.test$contact <- factor(x.test$contact, levels=levels(train.new$contact))
+x.test$day <- factor(x.test$day, levels=levels(train.new$day))
+x.test$month <- factor(x.test$month, levels=levels(train.new$month))
+x.test$campaign <- factor(x.test$campaign, levels=levels(train.new$campaign))
+x.test$previous <- factor(x.test$previous, levels=levels(train.new$previous))
+```
+
+```{r}
+set.seed(2018)
+
+rf.final <- randomForest(y~., data = train.train, ntree = 2100, mtry = 4, nodesize = 1, cutoff = c(0.6,0.4))
+
+pred.rf.final <- predict(rf, newdata = x.test)
+pred.rf.final <- as.character(pred.rf.final)
+
+# Re-attach the id to the predictions
+
+final.predictions <- cbind(id = test$id, test.predictions = pred.rf.final)
+
+# Write predictions to a csv file
+
+write.csv(final.predictions,'group_4_test_predictions.csv')
+```

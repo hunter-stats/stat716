@@ -1,0 +1,135 @@
+---
+title: "STAT716 Project"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, warning=FALSE}
+library(car) #residual plots
+library(leaps)
+library(caret)
+library(e1071)
+library(pscl) #pr2
+library(pROC)
+library(ROCR)
+```
+
+
+
+#----------------------------Dtat Pre-Processing---------------------------------
+```{r}
+#import train and test
+train <- read.csv('train_data.csv')
+test <- read.csv('test_data.csv')
+head(train)
+```
+
+
+```{r}
+#imbalanced class
+cbind(fre=table(train$y), percentage=prop.table(table(train$y))*100)
+```
+```{r}
+#Data Split
+set.seed(100)
+trainIndex <- createDataPartition(train$y, p=0.8, list=FALSE)
+dataTrain <- train[trainIndex,]
+dataTest <- train[-trainIndex,]
+table(dataTrain$y)
+```
+
+```{r}
+#upsampled minority in dataTrain
+#set.seed(100)
+#up.dataTrain <- upSample(x = dataTrain[,-ncol(dataTrain)], y = dataTrain$y)
+#table(up.dataTrain$Class)
+```
+
+
+#------------------------------------Logistic Regression------------------------------------
+```{r}
+#5 folds cv logistic regression with inbalanced data
+logit.ctrl2 <- trainControl(method="cv", number=5, classProbs=TRUE, summaryFunction = twoClassSummary)
+set.seed(100)
+logitinb.fit <- train(y~.-duration, data=dataTrain, trControl=logit.ctrl2, method="glm", family="binomial")
+print(logitinb.fit)
+summary(logitinb.fit)
+```
+
+```{r}
+#peformance on test
+inbfit.pred <- predict(logitinb.fit, dataTest)
+confusionMatrix(inbfit.pred, dataTest$y)
+```
+
+```{r}
+#5 folds cv logistic regression with up-sampling balanced train
+logit.ctrl1 <- trainControl(method="cv", number=5, classProbs=TRUE, sampling="up", summaryFunction = twoClassSummary)
+set.seed(100)
+logitba.fit <- train(y~.-duration, data=dataTrain, trControl=logit.ctrl1, method="glm", family="binomial")
+print(logitba.fit)
+summary(logitba.fit)
+```
+
+```{r}
+#perfoamce on test
+bafit.pred <- predict(logitba.fit, dataTest)
+confusionMatrix(bafit.pred, dataTest$y)
+```
+
+
+```{r}
+#variable importance
+print(varImp(logitba.fit, scale=FALSE))
+```
+
+
+#----------------------------------Decision Tree--------------------------------------------
+```{r}
+library(ISLR)
+library(tree)
+```
+
+```{r}
+#5 folds cv with upsampling
+tree.ctrl1 <- trainControl(method="cv", number=3, classProbs=TRUE, sampling="up", summaryFunction = twoClassSummary)
+set.seed(100)
+treeba.fit <- train(y~.-duration, data=dataTrain, trControl=tree.ctrl1, method="C5.0")
+#summary(treeba.fit)
+treeba.fit
+```
+
+```{r}
+#test performance
+treeba.pred <- predict(treeba.fit, dataTest)
+confusionMatrix(treeba.pred, dataTest$y)
+```
+
+```{r}
+#5 folds cv without upsampling
+tree.ctrl2 <- trainControl(method="cv", number=3, classProbs=TRUE,summaryFunction = twoClassSummary)
+set.seed(100)
+treeinb.fit <- train(y~.-duration, data=dataTrain, trControl=tree.ctrl2, method="C5.0")
+treeba.fit
+summary(treeba.fit)
+```
+
+```{r}
+#performance on test
+treeinb.pred <- predict(treeinb.fit, dataTest)
+confusionMatrix(treeinb.pred, dataTest$y)
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
