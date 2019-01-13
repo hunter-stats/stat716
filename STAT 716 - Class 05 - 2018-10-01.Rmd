@@ -1,0 +1,242 @@
+---
+title: "Class 5"
+output: html_notebook
+---
+
+
+
+```{r}
+library(MASS)
+library(dplyr)
+library(ggplot2)
+
+set.seed(2)
+x1_teal <- data.frame(x = rnorm(n = 1000, mean = 5),
+             isBlue = TRUE) 
+x1_red <- 
+  data.frame(x = rnorm(n = 1000, mean = -5),
+             isBlue = FALSE) 
+
+simple_data <- bind_rows(x1_teal, x1_red)
+
+
+simple_data  %>% 
+  ggplot(aes(x, fill = isBlue, color = isBlue)) + 
+  geom_density(alpha = 0.5)
+
+```
+
+
+
+
+```{r}
+simple_model <- glm(isBlue ~ x, data = simple_data, family = "binomial")
+
+simple_model %>% summary
+
+data.frame(x = seq(-2, 2, length.out = 100)) %>% 
+  mutate(prediction = predict(simple_model, ., type = "response")) %>% 
+  ggplot(aes(x, y = prediction)) +
+  geom_line()
+
+data.frame(x = 0) %>% 
+  predict(simple_model, ., type = "response")
+
+``` 
+
+```{r}
+lda_mod <- lda(isBlue ~x, data = simple_data)
+
+
+data.frame(x = seq(-2, 2, length.out = 1000)) %>% 
+  mutate(predict_lda =  predict(lda_mod, newdata = .)$posterior[,2],
+         predict_glm = predict(simple_model, ., type = "response")) %>% 
+  ggplot(aes(x = x)) +
+  geom_line(aes(y = predict_lda), color = "red") +
+  geom_line(aes(y = predict_glm), color = "blue")
+
+
+```
+
+Default Data
+
+```{r}
+library(ISLR)
+default_data <- Default
+lda_default <- lda(default ~ ., data = Default)
+lda_default
+
+predict(lda_default, default_data)$class
+
+
+default_data <- default_data %>% 
+  mutate(pred_lda = predict(lda_default,.)$class) 
+
+```
+
+Accuracy:
+
+```{r}
+mean(default_data$default == default_data$pred_lda)
+
+mean(default_data$default== "No")
+
+```
+
+```{r}
+
+default_data %>% 
+  xtabs(~pred_lda + default, data = .)
+```
+
+sensitivity:
+% of true defaulters identified
+
+```{r}
+79/(79+254)
+```
+
+specificity:
+
+```{r}
+9645/(9645+22)
+```
+
+
+```{r}
+library(caret)
+  xtabs(~pred_lda + default, data = default_data) %>% 
+  confusionMatrix(positive = "Yes")
+```
+
+```{r}
+default_data<- default_data %>% 
+  mutate(pred_lda_post = predict(lda_default,.)$posterior[,2]) %>% 
+  mutate(pred_lda2 = ifelse(pred_lda_post > 0.2,"Yes","No"))
+
+xtabs(~pred_lda + pred_lda2, data = default_data)
+
+
+default_data%>% 
+  xtabs(~pred_lda2 + default, data = .)
+```
+
+
+```{r}
+default_data %>% 
+  xtabs(~pred_lda2 + default, data = .) %>% 
+  confusionMatrix(positive = "Yes")
+```
+Positive Predictive Value:
+TP/Total Positive Predicted 
+```{r}
+193/(193+232)
+```
+
+Negative Predictive Value
+```{r}
+9435/(9435 + 140)
+```
+```{r}
+library(pROC)
+roc_obj <- roc( default ~ pred_lda_post, data = default_data) 
+roc_obj %>% plot
+
+data.frame(
+  sensitivity = roc_obj$sensitivities,
+  specificity = roc_obj$specificities) %>% 
+  ggplot(aes(x =1- specificity , y = sensitivity)) +
+  geom_line()
+```
+
+```{r}
+qda_default <-qda(default ~ ., data = Default)
+
+default_data<- default_data %>% 
+  mutate(pred_qda_post = predict(qda_default,.)$posterior[,2])
+
+roc_obj_qda <- roc( default ~ pred_qda_post, data = default_data) 
+roc_obj_qda
+
+data.frame(
+  sensitivity = roc_obj_qda$sensitivities,
+  specificity = roc_obj_qda$specificities) %>% 
+  ggplot(aes(x =1- specificity , y = sensitivity)) +
+  geom_line()
+```
+
+Are ROCs all that great?
+https://twitter.com/JeremySussman/status/1045804346519310336
+
+Confidence Intervals not shown...
+
+
+Calibration Plots?
+
+```{r}
+cut_quant <- function(x, breaks = 10){
+  cut(x, breaks = quantile(x, 
+                           probs = seq(0,1, length.out = breaks+1)), 
+      include.lowest = T)
+}
+
+
+
+default_data %>% 
+  mutate(pred_quantile = cut_quant(pred_lda_post, breaks = 10)) %>% 
+  group_by(pred_quantile) %>% 
+  summarise(mean_predict = mean(pred_lda_post),
+            mean_obs = mean(default == "Yes")) %>% 
+  ggplot(aes(x = mean_predict, y= mean_obs)) +
+  geom_point() +
+  geom_abline(slope = 1 , intercept = 0)
+
+```
+
+
+
+# Stock Market Compare Methods
+
+```{r}
+stock_data <- ISLR::Smarket
+
+# Train the data
+train_data <- stock_data$Year < 2005
+
+glm_fit<-glm(Direction ~ Lag1+Lag2 , data=Smarket ,family=binomial,subset=train_data)
+lda_fit<-lda(Direction ~ Lag1+Lag2 , data=Smarket ,subset=train_data)
+qda_fit<-qda(Direction ~ Lag1+Lag2 , data=Smarket, subset=train_data)
+
+# Test the data
+market_test <- Smarket %>% 
+  filter(!train_data) %>% 
+  mutate(glm_pred = ifelse(predict(glm_fit, newdata = ., type = "response") > 0.5, "Up", "Down"),
+         lda_pred = predict(lda_fit, newdata = .)$class,
+         qda_pred = predict(qda_fit, newdata = .)$class)
+
+
+
+test_accuracy <- function(predicted, actual, format = TRUE){
+  calc_accuracy <- mean(predicted == actual)
+  if(format){
+    calc_accuracy <- scales::percent(calc_accuracy)
+  }
+  calc_accuracy
+}
+
+
+test_accuracy(market_test$glm_pred, market_test$Direction)
+
+test_accuracy(market_test$lda_pred, market_test$Direction)
+test_accuracy(market_test$qda_pred, market_test$Direction)
+
+
+```
+
+Re run everything with lag1/lag2
+
+## Homework (due in 2 weeks)
+
+Read section 4
+Question 5 
+Quesiton 13

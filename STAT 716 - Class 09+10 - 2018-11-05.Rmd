@@ -1,0 +1,287 @@
+---
+title: "STAT 716 - Class 9/10 - 2018-11-05"
+author: "Vitaly Druker"
+output: pdf_document
+---
+ 
+ 
+```{r, include = FALSE}
+library(tidyverse)
+library(purrr)
+library(tidyr)
+library(ggplot2)
+
+
+```
+
+# Non Linearity
+
+## Polynomial regression
+ global function - this can be an issue - especially at the outer edges
+
+
+## Step Functions
+Step Functions localize everything,
+cut points categorical dummy variables
+
+## Basis functions
+
+general funcionts
+
+
+## Regression Splines
+
+piecewise polinomial regression
+
+show page 272
+
+
+piecwise cubic regression
+where to put knots?
+
+
+spline - continuous on second derivative
+
+
+Natural splines
+
+
+the function is required to be linear at the boundary (in the region where X is smaller than the smallest knot, or larger than the largest knot). 
+
+
+
+
+### Generalized Additive Models
+
+We have discussed regular linear regression. We can standarize into GAM with the following equation:
+
+$$
+y_i = \sum_{j = 1}^p{f_j(x_{ij}) + \epsilon_i}
+$$
+
+## Lab
+
+```{r}
+library(ISLR)
+first_fit <- lm(wage ~ poly(age, 4), data = Wage)
+
+coef(summary(first_fit))
+```
+
+```{r}
+coef(summary(lm(wage ~age + I(age^2) + I(age^3) + I(age^4),
+                data = Wage)))
+```
+
+Why don't the match? See here for an example: https://stackoverflow.com/questions/29999900/poly-in-lm-difference-between-raw-vs-orthogonal
+
+```{r}
+coef(summary(lm(wage ~poly(age, 4, raw = T),
+                data = Wage)))
+```
+
+### Cuts
+
+```{r}
+coef(summary(lm(wage ~cut(age, 4),
+                data = Wage)))
+```
+
+### Splines
+
+```{r}
+library(splines)
+library(dplyr)
+
+# cubic splines
+
+lm(wage~bs(age,knots=c(25,40,60)),data=Wage) %>% 
+  coef
+```
+
+We have 3 knots - how many degrees of freedom?
+
+If it's piecewise cubic how many degrees of freedom?
+4 + 4 + 4 + 4 = 16
+
+What do splines add? 
+1. Continuity
+2. Continuity on 1st derivative
+3. Continuiuty on 2nd derivative
+
+Each constraint is a degree of freedom
+
+remove 3 + 3 + 3 = 9
+
+Remaining = 7 which is what we see
+
+```{r}
+
+lm(wage~bs(age, df = 6),data=Wage) %>% 
+  coef
+
+
+attributes(bs(Wage$age, df = 6))
+
+lm(wage~bs(age),data=Wage) %>% 
+  coef
+
+```
+
+```{r}
+lm(wage~ns(age, knots=c(25,40,60)),data=Wage) %>% coef() %>% length()
+lm(wage~bs(age, knots=c(25,40,60)),data=Wage) %>% coef() %>% length()
+lm(wage~ns(age, knots=c(25,40,60)),data=Wage) %>% coef() %>% length()
+```
+
+How many degrees of freedom do we get from add the natural spline contraint
+
+only 2 degrees of freedom on the ends
+
+- 4 degrees of freedom
+
+2 + 4 + 4 + 2
+
+- 2 - 3 - 2
+
+```{r}
+2 + 4 + 4 + 2 + 
+  - 2 - 3 - 2
+```
+
+
+
+```{r}
+ns_mod <- lm(wage~ns(age, df = 6),data=Wage)
+bs_mod <- lm(wage~bs(age, df = 6),data=Wage)
+poly_mod <- lm(wage~poly(age,6),data=Wage)
+
+length(coef(ns_mod))
+length(coef(bs_mod))
+length(coef(poly_mod))
+```
+
+
+```{r}
+
+age_df  <- data.frame(age = seq(min(Wage$age), max(Wage$age), length.out =  100))
+
+predict_se_fit <- function(model, newdata,...){
+  
+  predictions <- predict(model, newdata, se.fit = T)
+  data.frame(
+    fit  = predictions$fit,
+    se.fit = predictions$se.fit
+  )
+}
+
+
+all_models  <- bind_rows(
+  age_df %>% 
+    nest() %>% 
+    mutate(mod = map(data, ~predict_se_fit(ns_mod, .)),
+           model = "ns") %>% 
+    unnest(),
+  age_df %>% 
+    nest() %>% 
+    mutate(mod = map(data, ~predict_se_fit(bs_mod, .)),
+           model = "bs") %>% 
+    unnest(),
+  age_df %>% 
+    nest() %>% 
+    mutate(mod = map(data, ~predict_se_fit(poly_mod, .)),
+           model = "poly") %>% 
+    unnest()
+  
+) %>% 
+  mutate(fit_low = fit - 2*se.fit,
+         fit_high = fit + 2*se.fit)
+
+all_models %>% 
+  ggplot(aes(x = age, y = fit, fill = model, color = model)) +
+  geom_point(aes(x = age, y = wage), data = Wage, inherit.aes = F, alpha = 0.3) +
+  geom_ribbon(aes(ymax = fit_high, ymin = fit_low), alpha = 0.5) +
+  geom_line() + 
+  facet_wrap(~model) +
+  theme(legend.position = "none") 
+```
+
+
+## Smoothing Splines
+
+$$
+\sum_{i = 1}^n(y_i - g(x_i))^2 + \lambda\int{g''(t)^2dt}
+$$
+
+Loss + penalty function
+
+2nd dervative is a measure of roughness
+
+The function g(x) that minimizes (7.11) can be shown to have some special properties: it is a piecewise cubic polynomial with knots at the unique values of x1,...,xn, and continuous first and second derivatives at each knot. Furthermore, it is linear in the region outside of the extreme knots. In other words, the function g(x) that minimizes (7.11) is a natural cubic spline with knots at x1,...,xn! 
+
+effective parameters
+
+n to 2 as lamda goes to ininity
+
+you can use loocv to calc
+
+$$
+RSS_{cv} = \sum_{i = 1}^n(\frac{y_i - \hat{g}_\lambda(x_i)}{1 - \{{S_\lambda}\}_{ii}})^2
+$$
+$\hat{g}$ is the fitted values for the full spline
+
+
+
+
+
+```{r}
+cv_smooth_spline <-with(Wage, smooth.spline(age,wage,cv=TRUE))
+gcv_smooth_spline <- with(Wage, smooth.spline(age,wage))
+```
+
+```{r}
+library(gam)
+gam_mod <- gam(wage ~ s(year) + s(age) + education, data = Wage)
+gam_mod <- gam(wage ~ s(year, df = 5) + s(age) + education, data = Wage)
+plot(gam_mod, se = T)
+```
+
+
+
+## Local Regression
+
+weighted regresion,
+
+choose points within x_0.
+can be linear or w/e
+
+```{r}
+
+data.frame(age = Wage$age,
+span_2 = predict(loess(wage ~ age, spoan = .2, data = Wage))) %>% 
+  ggplot(aes(x = age, y = span_2)) +
+  geom_point()
+
+data.frame(age = Wage$age,
+span_5 = predict(loess(wage ~ age, span = .5, data = Wage))) %>% 
+  ggplot(aes(x = age, y = span_5)) +
+  geom_point()
+
+
+```
+
+## Homework
+
+Read Chapter 7
+Question 9
+
+
+# Missing Data
+
+## Mean/Median Imputation
+
+## Modeling
+
+https://topepo.github.io/caret/pre-processing.html#impute
+
+
