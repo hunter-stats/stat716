@@ -1,0 +1,103 @@
+# Introduction
+
+## Motivation
+
+What questions can we ask of the wage data?
+ - age, year education data
+ 
+```{r}
+library(ISLR)
+library(dplyr)
+library(ggplot2)
+```
+
+
+```{r}
+Wage %>% 
+  glimpse
+```
+
+```{r}
+Wage %>% 
+  ggplot(aes(x = age, y = wage)) + 
+  geom_point() + 
+  geom_smooth()
+```
+ 
+ Why do we care?
+- Selfish, policy?
+
+Other Data Examples
+ - stock market
+ 
+```{r}
+ISLR::Smarket %>% 
+  glimpse
+```
+ 
+```{r}
+Smarket %>% 
+  mutate(row_num = row_number()) %>% 
+  ggplot(aes(x = Lag1, y = Today)) + 
+  geom_point()
+```
+
+
+
+ - gene expression
+
+```{r}
+data.frame(
+  Z1 = ISLR::NCI60$data[, 1],
+  Z2 = ISLR::NCI60$data[, 2],
+  label = ISLR::NCI60$labs) %>% 
+  ggplot(aes(x = Z1, y = Z2, color = label)) + 
+  geom_point()
+```
+
+
+
+## Where are we now?
+
+Statistical Learning vs. 
+  Machine Learning vs. 
+  Statistical Analysis vs. 
+  AI vs. 
+  Data Analysis vs. 
+  Data Science
+  
+I will use all of these interchangibly depending on what I've read on a given day.
+
+## Why R?
+
+Language focused on statistical analysis. It has some unique concepts that make it especially good at communicating statistical concepts.
+
+Lots of people have started using it in the last 10 years
+
+## What will this class do?
+
+1. Provide a survey of common and powerful statistical methods.
+2. Teach you how to apply them using R - including slightly easier versions of these methods (e.g. using `caret` package)
+3. Teach method to evaluate _any_ statistical method against others.
+4. Put all the concepts into a generalized framework of statistical learning
+ (that you will promptly find does not work - but hey we tried).
+
+## What this class won't force upon you but you will have to learn anyway
+
+1. Teach you about the data pipeline
+    - get the data
+    - clean the data
+    - access the data (often in databases)
+2. Proper programming principles
+    - writing good code
+    - reproducibility
+    - version control
+3. Communicating Results
+    - Different Audiences
+    - Working on a teams
+
+
+
+
+
+

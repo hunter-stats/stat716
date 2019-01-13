@@ -1,0 +1,303 @@
+# Statistical Learning
+
+## Why estimate f
+
+prediction and inference
+
+
+- which predictors?
+- how much each predictor?
+- what kind of relationship
+
+$$
+\begin{aligned}
+E(Y-\hat{Y})^2 &= E|f(X) + \epsilon - \hat{f}(X)|^2 \\
+& = (f(X) - \hat{f}(X))^2 + Var(\epsilon)
+\end{aligned}
+$$
+
+Irreducible vs Reducible error
+
+```{r}
+Wage %>% 
+  ggplot(aes(x = age, y = wage)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") +
+  geom_smooth(method = "lm",
+              formula = y ~ x + I(x^2),
+              color = "red")
+
+```
+
+## What are some sources of error?
+
+1. Irreducible
+   - unknown variables
+   - inherent randomness (e.g. dice throws)
+2. Reducible
+   - model form
+   - need for more data
+
+## What are some of the ways to estimate f?
+
+1. Linear vs non-linear
+2. parametrics vs non-parametric
+3. accuracy vs interpertability...
+4. supervised vs unsupervised
+5. regression vs classification
+
+## Measuring model accuracy
+
+1. MSE
+
+```{r}
+library(splines)
+mod1 <- lm(wage ~ age, data = Wage)
+
+mod2 <- lm(wage ~ ns(age, df = 5), 
+           data = Wage)
+
+mod3 <- lm(wage ~ ns(age, df = 30),
+           data = Wage)
+
+wage_pred <- Wage %>% 
+  select(wage, age)
+
+wage_pred$mod_1 <- predict(mod1, wage_pred)
+
+wage_pred$mod_2 <- predict(mod2, wage_pred)
+
+
+wage_pred$mod_3 <- predict(mod3, wage_pred)
+
+p <- wage_pred %>% 
+  ggplot(aes(x = age, y = wage)) +
+  geom_point(alpha = .2) +
+  geom_line(aes(y = mod_1), color = "blue", size = 2) 
+p
+
+p + 
+  geom_line(aes(y = mod_2), color = "red", size = 2) 
+
+p +
+  geom_line(aes(y = mod_2), color = "red", size = 2) +
+  geom_line(aes(y = mod_3), color = "green", size = 2)
+
+```
+
+_END OF CLASS 1_
+
+## Class 2
+
+### Concepts
+
+1. Overfitting
+2. Train and Test Data
+3. MSE
+4. Bias v Variance
+5. KNN
+6. Introduction to R
+
+### Administrative
+
+1. You can attempt the homework as many times as you want before the deadline.
+2. Please see me after class if you are not able to access blackboard
+3. Syllabus has been updated to reflect new office hours.
+
+## MSE - continued
+
+**Draw out table with _n_ rows, predictors, y, and $\hat{y}$ **
+Example predictor: age
+
+Forumula for train MSE:
+
+$$
+\frac{1}{n}\sum_{i = 1}^n{(y_i - \hat{y_i})^n}
+$$
+
+Some more notation:
+$x_0$ and $y_0$ refer to unseen observations - we train on $x_{1,2,3,...}$. This represents rows in our training set.
+
+```{r}
+wage_pred_example <- wage_pred %>% 
+  head() %>% 
+  select(wage, age, mod_1, mod_3) %>% 
+  mutate_at(vars(mod_1, mod_3), funs(sq_e = (.-wage)^2))
+
+wage_pred_example
+```
+
+```{r}
+wage_pred_example %>% 
+  summarise_at(vars(ends_with("_sq_e")), funs(mean))
+```
+
+This is clashing with our intuition - we don't think that model 3 is better than model 1
+
+
+Forumla for test MSE:
+
+$$
+Ave(y_0 - \hat{f}(x_0))^2
+$$
+
+Show how the data set
+add a prediction column
+calculate the residual 
+square it
+find the mean
+
+So we had our 3,000 observations we fit the model and calculate the lowest MSE?
+
+Similar to figure 2.9 in the text
+
+Draw a line for train MSE and test MSE
+
+**DEMO**
+```{r}
+library(ISLR)
+library(dplyr)
+library(ggplot2)
+library(splines)
+library(purrr)
+
+# Train/Test MSE ----
+# Split data intro training and test data
+set.seed(4)
+train_sample <- sample(1:nrow(Wage), size = 1500)
+wage_train <- Wage[train_sample,]
+wage_test <- Wage[-train_sample,]
+
+# Create a range of flexability
+degrees_test <- 1:50
+
+# Create a model for each value
+models <- lapply(degrees_test, function(i){
+  lm(wage ~ns(age, df = i), data = wage_train)
+})
+
+# Calculate the Train MSE
+train_mse <- sapply(models, function(model){
+  yhat_i <- predict(model, wage_train)
+  square_error <- (yhat_i - wage_train$wage)^2
+  mean(square_error)
+})
+
+# Calculate the Test MSE
+test_mse <- sapply(models, function(model){
+  yhat_0 <- predict(model, wage_test)
+  square_error <- (yhat_0 - wage_test$wage)^2
+  mean(square_error)
+})
+
+# Graph results - this is simiar to figure 2.9 on page 31
+data.frame(degrees_test, train_mse, test_mse) %>% 
+  # the next line pivots the data into a 'tidy' form for easy graphing
+  # the :: is used to access a specific function without calling 'library(tidyr)'
+  tidyr::gather("error_type", "MSE", train_mse,test_mse) %>% 
+  ggplot(aes(x = degrees_test, y = MSE, color = error_type)) + 
+  geom_line()
+
+# Some other practical considerations
+# 1. We had to set the seed, a different seed will give different results - we will use bootstrapping to deal with this
+# 2. How big do you make your train/test dataset - we will go over a suggestion for this in the future
+
+```
+
+
+## The Bias-Variance Trade-Off
+
+This visual representation can be quantified by the bias variance trade off.
+
+it's similar to heiseinberg's uncertainty principle
+
+
+$$
+E(y_0 - \hat{f}(x_0))^2 = Var(\hat{f(x_0)}) + [Bias(\hat{f}(x_0))]^2 + Var(\epsilon)
+$$
+
+
+Let's walk through each part of this equation
+
+1. 
+
+$$
+E(y_0 - \hat{f}(x_0))^2
+$$
+
+This is the expected test error or the test MSE for a given model. In fact, it's sort of the expected test error for a given modeling technique. This is because your test error will vary based on training data you select.
+
+
+2. 
+$$
+Var(\hat{f(x_0)})
+$$
+
+It's a measure of how much $\hat{f}$ changes when a different data set is used.
+
+What about bias - is it on the training set?
+
+We saw $Var(\epsilon)$ before - it is the irreducible error.
+
+## Classification
+
+What is an analogy of MSE?
+
+Training error is one example
+
+$$
+\frac{1}{n}\sum_{i = 1}^n{I(y_i \ne \hat{y_i})}
+$$
+This is the training error
+
+We want to get to the test error so look at $y_0$
+
+## Bayes Classifier?
+
+This is the same as the _true f_ and similiarly we will never know the true form.
+
+$$
+Pr(Y =j | X = x_0)
+$$
+
+1. What's the output of this? 
+2. How is 'randomness' captured in the classification setting vs the regression setting
+    - in regreession we have $Var(\epsilon)$
+3. What's the variance of a bernoulli variable?
+    - $p*(1-p)$
+
+
+## K Nearest Neighbors
+
+This classifier is non paramteric, highly non-linear.
+
+This is a little confusing - because there is a paramter (K). However we aren't _estimating_ it, we are setting it.
+
+What is the k analagous to in terms of the example we saw last time?
+
+**Open to page 41 of the book and draw some of those examples**
+
+The KNN boundary can be drawn as well. We will not show go through applying knn right now - we will look into it more when we dive into classifcation.
+
+
+## Introduction to R
+
+1. assigning data to a variable
+2. Getting data (built in) or read_csv
+3. mutate, select, group by, summarise, filter
+    - one sheet
+4. ggplot
+    - one sheet
+5. Some not so great practices
+    attach, fix (use View)
+6. some good stuff:
+`pairs`, `summary`
+7. Where to get help?
+ F1/? when in Rstudio
+ Google
+
+
+```{r}
+
+```
+
